@@ -1,0 +1,75 @@
+{
+  "tasks": [
+    {
+      "id": "basic_validation",
+      "name": "Basic Endpoint Validation",
+      "difficulty": "easy",
+      "description": "Test all CRUD endpoints with valid inputs and verify correct status codes. Find basic bugs like wrong status codes and missing field handling.",
+      "max_steps": 25,
+      "bugs": ["BUG_TASK_01", "BUG_TASK_02", "BUG_TASK_03"],
+      "grading": {
+        "get_coverage": 0.25,
+        "post_testing": 0.20,
+        "put_delete": 0.15,
+        "bugs_found": 0.20,
+        "schema_validation": 0.20
+      }
+    },
+    {
+      "id": "edge_cases",
+      "name": "Edge Cases & Error Handling",
+      "difficulty": "medium",
+      "description": "Test boundary conditions, invalid inputs, and error responses. Chain operations and find validation bugs.",
+      "max_steps": 35,
+      "bugs": [
+        "BUG_TASK_01", "BUG_TASK_02", "BUG_TASK_03",
+        "BUG_TASK_04", "BUG_TASK_05", "BUG_TASK_06",
+        "BUG_USER_01", "BUG_USER_02", "BUG_AUTH_02"
+      ],
+      "grading": {
+        "missing_fields": 0.15,
+        "invalid_types": 0.15,
+        "boundary_values": 0.15,
+        "nonexistent_resources": 0.15,
+        "bugs_found": 0.20,
+        "dependency_chaining": 0.20
+      }
+    },
+    {
+      "id": "security_workflows",
+      "name": "Security & Multi-Step Workflows",
+      "difficulty": "hard",
+      "description": "Discover authorization flaws, injection vulnerabilities, and multi-step workflow bugs.",
+      "max_steps": 45,
+      "bugs": [
+        "BUG_TASK_01", "BUG_TASK_02", "BUG_TASK_03",
+        "BUG_TASK_04", "BUG_TASK_05", "BUG_TASK_06",
+        "BUG_TASK_07", "BUG_TASK_08", "BUG_TASK_09",
+        "BUG_USER_01", "BUG_USER_02",
+        "BUG_AUTH_01", "BUG_AUTH_02"
+      ],
+      "grading": {
+        "cross_user_auth": 0.20,
+        "injection_testing": 0.20,
+        "state_consistency": 0.20,
+        "security_bugs": 0.20,
+        "workflow_coverage": 0.20
+      }
+    }
+  ],
+  "bug_registry": {
+    "BUG_TASK_01": {"severity": "easy", "category": "status_code", "description": "GET /tasks/{id} returns 200 with null for non-existent task"},
+    "BUG_TASK_02": {"severity": "easy", "category": "validation", "description": "POST /tasks with missing title returns 500 instead of 400"},
+    "BUG_TASK_03": {"severity": "easy", "category": "validation", "description": "GET /tasks?page=-1 returns 200 instead of 400"},
+    "BUG_TASK_04": {"severity": "medium", "category": "validation", "description": "PUT /tasks/{id} accepts invalid email format"},
+    "BUG_TASK_05": {"severity": "medium", "category": "status_code", "description": "DELETE /tasks/{id} returns 200 for non-existent task"},
+    "BUG_TASK_06": {"severity": "medium", "category": "validation", "description": "No pagination cap on limit parameter"},
+    "BUG_TASK_07": {"severity": "hard", "category": "security", "description": "BOLA: any user can access any task"},
+    "BUG_TASK_08": {"severity": "hard", "category": "validation", "description": "Long title causes 500 error"},
+    "BUG_TASK_09": {"severity": "hard", "category": "security", "description": "SQL injection payload stored verbatim"},
+    "BUG_USER_01": {"severity": "medium", "category": "validation", "description": "POST /users accepts invalid email"},
+    "BUG_USER_02": {"severity": "medium", "category": "security", "description": "Response exposes password hash"},
+    "BUG_AUTH_01": {"severity": "hard", "category": "security", "description": "Broken authorization: cross-user token access"},
+    "BUG_AUTH_02": {"severity": "medium", "category": "security", "description": "Empty password login succeeds"}
+  }
+}

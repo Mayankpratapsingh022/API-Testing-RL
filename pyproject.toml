@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-api-testing"
+version = "0.1.0"
+description = "RL environment for intelligent API integration testing — train agents to find bugs in REST APIs"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core[core] @ git+https://github.com/meta-pytorch/OpenEnv.git@v0.2.1",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+ui = [
+    "gradio>=5.0.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+train = [
+    "trl[vllm]>=0.29.0",
+    "torch>=2.8.0",
+    "peft",
+    "transformers",
+    "datasets",
+]
+
+[project.scripts]
+server = "api_testing_env.server.app:main"
+
+[tool.uv]
+package = false
+
+[tool.setuptools]
+include-package-data = true
+packages = [
+    "api_testing_env",
+    "api_testing_env.server",
+    "api_testing_env.server.buggy_api",
+    "api_testing_env.server.buggy_api.routes",
+    "api_testing_env.training",
+]
+
+[tool.setuptools.package-dir]
+api_testing_env = "."
+"api_testing_env.server" = "server"
+"api_testing_env.server.buggy_api" = "server/buggy_api"
+"api_testing_env.server.buggy_api.routes" = "server/buggy_api/routes"
+"api_testing_env.training" = "training"
