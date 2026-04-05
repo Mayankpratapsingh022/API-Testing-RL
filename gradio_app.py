@@ -49,7 +49,7 @@ def reset_env(task_id, state):
         f"Environment reset. Task: **{task_id}** ({t['difficulty']})\n\nMax steps: {t['max_steps']} | Bugs to find: {t['total_bugs']}",
         obs.feedback,
         "",
-        "0.0",
+        format_reward_display(0, 0, {}),
         f"0 / {t['total_bugs']}",
         format_coverage(obs.coverage_summary),
         "",
@@ -57,7 +57,6 @@ def reset_env(task_id, state):
         "No bugs found yet.",
         "No tokens acquired yet.",
         "No resources created yet.",
-        format_endpoints(),
     )
 
 
@@ -102,15 +101,7 @@ def send_request(method, endpoint, headers_str, params_str, body_str, expected_s
     })
 
     breakdown = obs.metadata.get("reward_breakdown", {})
-    reward_detail = (
-        f"**Step reward:** {reward:.4f}\n"
-        f"**Cumulative:** {state.total_reward:.4f}\n\n"
-        f"Coverage: {breakdown.get('coverage', 0):.3f} | "
-        f"Validity: {breakdown.get('validity', 0):.3f} | "
-        f"Bug: {breakdown.get('bug_discovery', 0):.3f} | "
-        f"Explore: {breakdown.get('exploration', 0):.3f} | "
-        f"Penalty: {breakdown.get('penalty', 0):.3f}"
-    )
+    reward_detail = format_reward_display(reward, state.total_reward, breakdown)
 
     t = TASKS[state.task_id]
     es = state.env.state
@@ -204,15 +195,7 @@ def run_baseline_agent(agent_type, state):
             resp_str = str(resp_body)
 
         breakdown = obs.metadata.get("reward_breakdown", {})
-        reward_detail = (
-            f"**Step reward:** {reward:.4f}\n"
-            f"**Cumulative:** {state.total_reward:.4f}\n\n"
-            f"Coverage: {breakdown.get('coverage', 0):.3f} | "
-            f"Validity: {breakdown.get('validity', 0):.3f} | "
-            f"Bug: {breakdown.get('bug_discovery', 0):.3f} | "
-            f"Explore: {breakdown.get('exploration', 0):.3f} | "
-            f"Penalty: {breakdown.get('penalty', 0):.3f}"
-        )
+        reward_detail = format_reward_display(reward, state.total_reward, breakdown)
 
         es = state.env.state
         done_text = ""
@@ -239,6 +222,55 @@ def run_baseline_agent(agent_type, state):
 # Formatters
 # =====================================================================
 
+def format_reward_display(step_reward, cumulative, breakdown):
+    """Render reward metrics as styled HTML with explanations."""
+    components = [
+        ("Coverage", breakdown.get("coverage", 0),
+         "Reward for testing new endpoints and methods"),
+        ("Validity", breakdown.get("validity", 0),
+         "Reward for sending well-formed requests that return expected status codes"),
+        ("Bug", breakdown.get("bug_discovery", 0),
+         "Bonus for discovering a new bug in the API"),
+        ("Explore", breakdown.get("exploration", 0),
+         "Reward for trying new parameter combinations and edge cases"),
+        ("Penalty", breakdown.get("penalty", 0),
+         "Deduction for repeated or invalid requests"),
+    ]
+    bars = []
+    for label, value, tip in components:
+        val_color = "#16a34a" if value > 0 else "#dc2626" if value < 0 else "inherit"
+        bars.append(
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'padding:2px 0;font-size:0.82em;" title="{tip}">'
+            f'<span style="opacity:0.6;cursor:help;border-bottom:1px dotted currentColor;">'
+            f'{label}</span>'
+            f'<span style="color:{val_color};font-family:monospace;font-weight:600;">'
+            f'{value:+.3f}</span></div>'
+        )
+    cum_color = "#16a34a" if cumulative > 0 else "#dc2626" if cumulative < 0 else "inherit"
+    step_color = "#16a34a" if step_reward > 0 else "#dc2626" if step_reward < 0 else "inherit"
+    return (
+        f'<div style="display:flex;gap:16px;margin-bottom:8px;">'
+        f'<div style="flex:1;text-align:center;padding:6px;background:rgba(128,128,128,0.1);'
+        f'border-radius:8px;">'
+        f'<div style="font-size:0.72em;opacity:0.55;">STEP REWARD</div>'
+        f'<div style="font-size:1.3em;font-weight:700;color:{step_color};">'
+        f'{step_reward:+.4f}</div></div>'
+        f'<div style="flex:1;text-align:center;padding:6px;background:rgba(128,128,128,0.1);'
+        f'border-radius:8px;">'
+        f'<div style="font-size:0.72em;opacity:0.55;">CUMULATIVE</div>'
+        f'<div style="font-size:1.3em;font-weight:700;color:{cum_color};">'
+        f'{cumulative:.4f}</div></div></div>'
+        f'<div style="border:1px solid rgba(128,128,128,0.2);border-radius:8px;padding:6px 10px;">'
+        f'<div style="font-size:0.72em;opacity:0.5;margin-bottom:4px;">'
+        f'REWARD BREAKDOWN '
+        f'<span title="How the reward for the last step was calculated"'
+        f' style="cursor:help;">&#9432;</span></div>'
+        + "".join(bars)
+        + "</div>"
+    )
+
+
 def format_coverage(summary):
     if not summary:
         return "No data"
@@ -247,27 +279,93 @@ def format_coverage(summary):
     total = summary.get("total_endpoints", 0)
     pairs = summary.get("method_endpoint_pairs", 0)
     codes = summary.get("status_codes_seen", [])
-    bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+    color = "#dc2626" if pct < 30 else "#d97706" if pct < 70 else "#16a34a"
+    bar_html = (
+        f'<div style="display:flex;align-items:center;gap:8px;margin:4px 0;">'
+        f'<div style="flex:1;background:rgba(128,128,128,0.15);border-radius:6px;height:14px;overflow:hidden;">'
+        f'<div style="width:{pct:.1f}%;height:100%;background:{color};border-radius:6px;'
+        f'transition:width 0.3s ease;"></div></div>'
+        f'<span style="font-weight:700;min-width:48px;text-align:right;">{pct:.1f}%</span></div>'
+    )
+    code_pills = ""
+    for c in codes:
+        cc = "#16a34a" if 200 <= c < 300 else "#d97706" if 300 <= c < 400 else "#dc2626"
+        code_pills += (
+            f'<span style="background:{cc}18;color:{cc};padding:1px 7px;border-radius:10px;'
+            f'font-size:0.78em;font-weight:600;margin-right:4px;">{c}</span>'
+        )
     return (
-        f"**{pct:.1f}%** [{bar}]\n\n"
-        f"Endpoints: {tested}/{total} | Method+Endpoint pairs: {pairs}\n"
-        f"Status codes seen: {', '.join(str(c) for c in codes)}"
+        f"{bar_html}"
+        f'<div style="display:flex;gap:10px;margin:6px 0;font-size:0.82em;">'
+        f'<div style="flex:1;text-align:center;padding:4px;background:rgba(128,128,128,0.1);border-radius:6px;"'
+        f' title="How many unique API endpoints have been called">'
+        f'<div style="font-size:0.72em;opacity:0.5;">ENDPOINTS</div>'
+        f'<div style="font-weight:700;">{tested}/{total}</div></div>'
+        f'<div style="flex:1;text-align:center;padding:4px;background:rgba(128,128,128,0.1);border-radius:6px;"'
+        f' title="Unique combinations of HTTP method + endpoint path tested">'
+        f'<div style="font-size:0.72em;opacity:0.5;">METHOD+PATH</div>'
+        f'<div style="font-weight:700;">{pairs}</div></div></div>'
+        f'<div style="margin-top:4px;" title="HTTP status codes received from the API so far">'
+        f'<span style="font-size:0.72em;opacity:0.5;">STATUS CODES SEEN </span>'
+        f'{code_pills}</div>'
     )
 
 
 def format_log(log):
     if not log:
-        return "No steps yet."
-    lines = []
-    for entry in log[-15:]:
-        bug_marker = " 🐛" if entry.get("reward", 0) > 0.2 else ""
-        lines.append(
-            f"`{entry['step']:2d}` **{entry['method']}** {entry['endpoint']} "
-            f"-> {entry['status']} (r={entry['reward']:+.3f}){bug_marker}"
+        return (
+            '<div style="opacity:0.55;font-size:0.85em;">'
+            "Each row shows an API request the agent made, the HTTP status it got back, "
+            "and the reward earned. Green = positive reward, red = penalty."
+            "</div>"
         )
-    if len(log) > 15:
-        lines.insert(0, f"*... {len(log) - 15} earlier steps omitted*")
-    return "\n".join(lines)
+    method_colors = {
+        "GET": "#2563eb", "POST": "#16a34a", "PUT": "#d97706",
+        "DELETE": "#dc2626", "PATCH": "#9333ea",
+    }
+    rows = []
+    for entry in log[-20:]:
+        m = entry["method"]
+        mcol = method_colors.get(m, "#6b7280")
+        r = entry["reward"]
+        rcol = "#16a34a" if r > 0 else "#dc2626" if r < 0 else "inherit"
+        bug_tag = (
+            '<span style="background:#92400e;color:#fef08a;padding:0 5px;border-radius:4px;'
+            'font-size:0.7em;margin-left:4px;">BUG FOUND</span>'
+        ) if r > 0.2 else ""
+        status = entry["status"]
+        scol = "#16a34a" if 200 <= status < 300 else "#d97706" if 300 <= status < 400 else "#dc2626"
+        rows.append(
+            f'<div style="display:flex;align-items:center;gap:6px;padding:3px 0;'
+            f'border-bottom:1px solid rgba(128,128,128,0.1);font-size:0.82em;">'
+            f'<span style="opacity:0.45;min-width:20px;text-align:right;">{entry["step"]}</span>'
+            f'<span style="background:{mcol}18;color:{mcol};padding:1px 6px;border-radius:4px;'
+            f'font-weight:600;font-size:0.8em;min-width:52px;text-align:center;">{m}</span>'
+            f'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;'
+            f'white-space:nowrap;">{entry["endpoint"]}</span>'
+            f'<span style="color:{scol};font-weight:600;min-width:28px;text-align:right;">{status}</span>'
+            f'<span style="color:{rcol};min-width:52px;text-align:right;font-family:monospace;'
+            f'font-size:0.85em;">{r:+.3f}</span>{bug_tag}</div>'
+        )
+    omitted = ""
+    if len(log) > 20:
+        omitted = (
+            f'<div style="opacity:0.45;font-size:0.78em;padding:4px 0;text-align:center;">'
+            f'... {len(log) - 20} earlier steps not shown</div>'
+        )
+    header = (
+        '<div style="opacity:0.55;font-size:0.78em;margin-bottom:6px;">'
+        "API requests made by the agent. Each row: step number, HTTP method, "
+        "endpoint, status code, and reward earned.</div>"
+        '<div style="display:flex;gap:6px;padding:2px 0 6px;border-bottom:1px solid rgba(128,128,128,0.2);'
+        'font-size:0.75em;opacity:0.5;">'
+        '<span style="min-width:20px;text-align:right;">#</span>'
+        '<span style="min-width:52px;text-align:center;">Method</span>'
+        '<span style="flex:1;">Endpoint</span>'
+        '<span style="min-width:28px;text-align:right;">Status</span>'
+        '<span style="min-width:52px;text-align:right;">Reward</span></div>'
+    )
+    return header + omitted + "\n".join(rows)
 
 
 def format_bug_list(bug_ids):
@@ -275,25 +373,77 @@ def format_bug_list(bug_ids):
         return "No bugs found yet."
     from server.bug_detector import BugDetector
     detector = BugDetector("security_workflows")
-    lines = []
+    severity_colors = {
+        "easy": "#16a34a",
+        "medium": "#d97706",
+        "hard": "#dc2626",
+    }
+    cards = []
     for bid in sorted(bug_ids):
         bug = detector.bugs.get(bid)
         if bug:
-            icon = {"easy": "🟢", "medium": "🟡", "hard": "🔴"}.get(bug.severity, "⚪")
-            lines.append(f"{icon} **{bid}** ({bug.severity}): {bug.description}")
-    return "\n".join(lines)
+            fg = severity_colors.get(bug.severity, "#6b7280")
+            cards.append(
+                f'<div style="border:1px solid {fg}40;border-radius:8px;padding:8px 10px;'
+                f'margin-bottom:6px;background:{fg}0d;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span style="font-weight:700;font-size:0.85em;">{bid}</span>'
+                f'<span style="background:{fg};color:#fff;padding:1px 8px;border-radius:10px;'
+                f'font-size:0.75em;font-weight:600;">{bug.severity.upper()}</span></div>'
+                f'<div style="margin-top:4px;font-size:0.85em;opacity:0.7;">'
+                f'{bug.description}</div></div>'
+            )
+    return "\n".join(cards)
 
 
 def format_auth_tokens(tokens):
     if not tokens:
-        return "No tokens acquired yet."
-    return "\n".join(f"**{user}**: `{token[:16]}...`" for user, token in tokens.items())
+        return (
+            '<div style="opacity:0.5;font-size:0.85em;">'
+            "No tokens yet. Login via <code>POST /auth/login</code> to get auth tokens "
+            "for testing protected endpoints.</div>"
+        )
+    cards = []
+    for user, token in tokens.items():
+        cards.append(
+            f'<div style="display:flex;align-items:center;gap:8px;padding:4px 0;'
+            f'border-bottom:1px solid rgba(128,128,128,0.1);font-size:0.85em;">'
+            f'<span style="background:#2563eb18;color:#2563eb;padding:1px 8px;border-radius:10px;'
+            f'font-weight:600;font-size:0.8em;">{user}</span>'
+            f'<code style="opacity:0.55;font-size:0.82em;">{token[:20]}...</code></div>'
+        )
+    return (
+        '<div style="font-size:0.72em;opacity:0.5;margin-bottom:4px;"'
+        ' title="Auth tokens obtained by logging in. Use these in the Authorization header.">'
+        "AUTHENTICATED USERS</div>"
+        + "".join(cards)
+    )
 
 
 def format_resources(ids):
     if not ids:
-        return "No resources created yet."
-    return "\n".join(f"**{rtype}**: {id_list}" for rtype, id_list in ids.items())
+        return (
+            '<div style="opacity:0.5;font-size:0.85em;">'
+            "No resources created. Use POST endpoints to create tasks or users "
+            "and track their IDs here.</div>"
+        )
+    sections = []
+    type_colors = {"tasks": "#d97706", "users": "#2563eb"}
+    for rtype, id_list in ids.items():
+        color = type_colors.get(rtype, "#6b7280")
+        ids_str = ", ".join(str(i) for i in id_list) if isinstance(id_list, list) else str(id_list)
+        sections.append(
+            f'<div style="padding:4px 0;border-bottom:1px solid rgba(128,128,128,0.1);font-size:0.85em;">'
+            f'<span style="background:{color}18;color:{color};padding:1px 8px;border-radius:10px;'
+            f'font-weight:600;font-size:0.8em;text-transform:uppercase;">{rtype}</span>'
+            f'<span style="margin-left:8px;opacity:0.7;">IDs: {ids_str}</span></div>'
+        )
+    return (
+        '<div style="font-size:0.72em;opacity:0.5;margin-bottom:4px;"'
+        ' title="Resources created during this episode. Use these IDs in GET/PUT/DELETE requests.">'
+        "CREATED RESOURCES</div>"
+        + "".join(sections)
+    )
 
 
 def format_endpoints():
@@ -311,7 +461,16 @@ def build_ui():
     with gr.Blocks(title="API Testing Environment") as demo:
         session = gr.State(value=new_session())
 
-        gr.Markdown("# API Testing Environment\nTrain an AI agent to test REST APIs — find bugs, earn rewards, maximize coverage.")
+        gr.Markdown(
+            "# API Testing Environment\n"
+            "This is a reinforcement learning playground for training AI agents to test REST APIs. "
+            "A simulated API server with **intentionally hidden bugs** is provided — the agent "
+            "(or you, manually) sends HTTP requests and earns **rewards** for finding bugs, "
+            "covering new endpoints, and sending valid requests. "
+            "Use **Manual Testing** to craft requests yourself, or run a **Baseline Agent** to "
+            "watch an automated strategy in action. The goal: maximize your score by discovering "
+            "all bugs within the step limit."
+        )
 
         with gr.Row():
             # ── Left Panel ──
@@ -319,24 +478,41 @@ def build_ui():
                 gr.Markdown("### Environment Control")
                 task_dropdown = gr.Dropdown(choices=list(TASKS.keys()), value="basic_validation", label="Select Task")
                 reset_btn = gr.Button("Reset Environment", variant="primary", size="lg")
-                status_box = gr.Markdown("Click **Reset** to start.")
+                gr.Markdown(
+                    '<span style="font-size:0.8em;opacity:0.55;">'
+                    "Switch task or click Reset to start a fresh episode. "
+                    "Resets all scores, bugs, and step count.</span>"
+                )
+                status_box = gr.Markdown("Initializing...")
 
                 gr.Markdown("---")
                 gr.Markdown("### Scoreboard")
+                gr.Markdown(
+                    '<span style="font-size:0.78em;opacity:0.55;">'
+                    "Tracks your testing progress. Steps are API calls you've made; "
+                    "bugs are issues discovered in the API; reward measures how well "
+                    "the agent is testing.</span>"
+                )
                 with gr.Row():
                     step_display = gr.Markdown("0 / 25", label="Steps")
                     bug_display = gr.Markdown("0 / 3", label="Bugs")
-                reward_display = gr.Markdown("0.0", label="Reward")
+                reward_display = gr.Markdown(format_reward_display(0, 0, {}), label="Reward")
                 coverage_display = gr.Markdown("No data", label="Coverage")
 
                 gr.Markdown("---")
-                gr.Markdown("### Discovered Bugs")
-                bug_list_display = gr.Markdown("No bugs found yet.")
+                gr.Markdown("### Session Context")
+                gr.Markdown(
+                    '<span style="font-size:0.78em;opacity:0.55;">'
+                    "Tokens and resources gathered during this episode. "
+                    "Use tokens to test auth-protected endpoints and resource IDs for "
+                    "GET/PUT/DELETE requests.</span>"
+                )
+                auth_display = gr.Markdown(format_auth_tokens({}))
+                resource_display = gr.Markdown(format_resources({}))
 
                 gr.Markdown("---")
-                gr.Markdown("### Session Context")
-                auth_display = gr.Markdown("No tokens acquired yet.")
-                resource_display = gr.Markdown("No resources created yet.")
+                with gr.Accordion("API Specification", open=False):
+                    gr.Markdown(format_endpoints())
 
             # ── Center Panel ──
             with gr.Column(scale=2):
@@ -379,9 +555,6 @@ def build_ui():
                         agent_dropdown = gr.Dropdown(choices=["random", "sequential", "smart"], value="smart", label="Agent Type")
                         run_agent_btn = gr.Button("Run Agent", variant="primary", size="lg")
 
-                    with gr.Tab("API Specification"):
-                        endpoint_spec = gr.Markdown(format_endpoints())
-
                 gr.Markdown("---")
                 gr.Markdown("### Response")
                 response_display = gr.Markdown("")
@@ -391,6 +564,10 @@ def build_ui():
 
             # ── Right Panel ──
             with gr.Column(scale=1):
+                gr.Markdown("### Discovered Bugs")
+                bug_list_display = gr.Markdown("No bugs found yet.")
+
+                gr.Markdown("---")
                 gr.Markdown("### Activity Log")
                 log_display = gr.Markdown("No steps yet.")
 
@@ -399,7 +576,6 @@ def build_ui():
             session, status_box, feedback_display, response_display,
             reward_display, bug_display, coverage_display, log_display,
             step_display, bug_list_display, auth_display, resource_display,
-            endpoint_spec,
         ]
 
         step_outputs = [
@@ -422,6 +598,9 @@ def build_ui():
         )
 
         run_agent_btn.click(fn=run_baseline_agent, inputs=[agent_dropdown, session], outputs=step_outputs)
+
+        # Auto-reset on page load so users can start testing immediately
+        demo.load(fn=reset_env, inputs=[task_dropdown, session], outputs=reset_outputs)
 
     return demo
 
