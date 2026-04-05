@@ -1,6 +1,6 @@
-# API Testing Environment for OpenEnv
+# API Testing Environment 
 
-An OpenEnv RL environment where an AI agent learns to **test REST APIs intelligently** — discovering endpoints, crafting requests, validating responses, finding bugs, and handling edge cases.
+An  RL environment where an AI agent learns to **test REST APIs intelligently** — discovering endpoints, crafting requests, validating responses, finding bugs, and handling edge cases.
 
 The agent is given an API specification and must explore a deliberately buggy Task Management API, earning rewards for coverage, correctness, and bug discovery. Think of it as training an AI to become an automated QA engineer.
 
