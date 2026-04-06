@@ -1,5 +1,5 @@
 """
-Task-specific grading logic.
+Task-specific grading logic and bug bounty report generation.
 
 Each task has a grader that computes a final score (0.0 - 1.0)
 based on what the agent accomplished during the episode.
@@ -13,6 +13,54 @@ class GradeResult:
     score: float
     breakdown: dict[str, float]
     feedback: str
+    report: str = ""  # Bug bounty report (markdown)
+
+
+def generate_bug_report(bugs_found_ids: list[str], action_history: list[dict]) -> str:
+    """Generate a structured bug bounty report for discovered bugs."""
+    from .bug_detector import BugDetector
+    detector = BugDetector("security_workflows")
+
+    if not bugs_found_ids:
+        return "## API Security Assessment Report\n\nNo vulnerabilities discovered."
+
+    severity_order = {"hard": 0, "medium": 1, "easy": 2}
+    sorted_bugs = sorted(bugs_found_ids, key=lambda b: severity_order.get(detector.bugs.get(b, None) and detector.bugs[b].severity or "easy", 2))
+
+    sections = ["## API Security Assessment Report", ""]
+    sections.append(f"**Vulnerabilities Found:** {len(bugs_found_ids)}")
+
+    # Count by severity
+    counts = {"easy": 0, "medium": 0, "hard": 0}
+    for bid in bugs_found_ids:
+        bug = detector.bugs.get(bid)
+        if bug:
+            counts[bug.severity] = counts.get(bug.severity, 0) + 1
+    sections.append(f"**Critical/Hard:** {counts['hard']} | **Medium:** {counts['medium']} | **Low/Easy:** {counts['easy']}")
+    sections.append("")
+
+    for bid in sorted_bugs:
+        bug = detector.bugs.get(bid)
+        if not bug:
+            continue
+
+        sev_label = {"easy": "LOW", "medium": "MEDIUM", "hard": "HIGH"}.get(bug.severity, "INFO")
+        owasp = bug.owasp if bug.owasp else "Uncategorized"
+
+        sections.append(f"### {sev_label}: {bug.description}")
+        sections.append(f"- **ID:** {bid}")
+        sections.append(f"- **OWASP:** {owasp}")
+        sections.append(f"- **Category:** {bug.category}")
+        sections.append(f"- **Recommendation:** {bug.recommendation}" if bug.recommendation else "")
+
+        # Find the action that triggered this bug
+        for h in action_history:
+            if h.get("method") and h.get("endpoint"):
+                sections.append(f"- **Triggered by:** {h['method']} {h['endpoint']}")
+                break
+        sections.append("")
+
+    return "\n".join(sections)
 
 
 class TaskGrader:

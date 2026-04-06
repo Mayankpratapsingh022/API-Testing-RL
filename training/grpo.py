@@ -59,8 +59,8 @@ except ImportError:
 # ------------------------------------
 
 from server.environment import APITestEnvironment
-from .prompts import SYSTEM_PROMPT, format_observation
-from .rewards import format_reward_fn, environment_reward_fn
+from .prompts import PLAN_SYSTEM_PROMPT, format_plan_prompt
+from .rewards import format_reward_fn, plan_reward_fn, diversity_reward_fn
 from .evaluate import run_rollout, run_baseline_local
 
 
@@ -68,11 +68,10 @@ def build_training_prompts(
     num_episodes: int = 50,
     task_ids: list[str] | None = None,
 ) -> list[dict]:
-    """Generate training prompts by sampling environment episodes.
+    """Generate training prompts for GRPO plan-based training.
 
-    Each prompt = one episode starting state with a unique seed.
-    The actual training happens when GRPO rolls out actions and
-    collects rewards from the environment.
+    Each prompt asks the model to output a COMPLETE TEST PLAN (JSON array of actions).
+    The reward function will execute the plan on a fresh environment and score it.
     """
     if task_ids is None:
         task_ids = ["basic_validation", "edge_cases", "security_workflows"]
@@ -85,10 +84,10 @@ def build_training_prompts(
         seed = i * 1000 + 42
 
         obs = env.reset(seed=seed, task_id=task_id)
-        user_message = format_observation(obs)
+        user_message = format_plan_prompt(obs)
 
         prompt_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": PLAN_SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
         ]
 
@@ -501,18 +500,16 @@ def train_grpo(args):
 
     dataset = Dataset.from_list(formatted_prompts)
 
-    # Create per-prompt environments for reward computation
-    envs = []
-    for p in raw_prompts:
-        env = APITestEnvironment()
-        env.reset(seed=p["seed"], task_id=p["task_id"])
-        envs.append(env)
+    # Store prompt metadata for the reward function to create fresh envs
+    prompts_meta = [{"seed": p["seed"], "task_id": p["task_id"]} for p in raw_prompts]
 
-    # Combined reward function
+    # Combined reward: format (valid JSON array?) + plan (execute all actions) + diversity (varied requests?)
+    # Each generation gets a FRESH environment — no shared state pollution
     def combined_reward_fn(completions, **kwargs):
-        format_rewards = format_reward_fn(completions)
-        env_rewards = environment_reward_fn(completions, envs=envs)
-        return [f + e for f, e in zip(format_rewards, env_rewards)]
+        fmt = format_reward_fn(completions)
+        plan = plan_reward_fn(completions, prompts_meta=prompts_meta)
+        div = diversity_reward_fn(completions)
+        return [f + p + d for f, p, d in zip(fmt, plan, div)]
 
     # --- Step 6: GRPO training ---
     config = GRPOConfig(

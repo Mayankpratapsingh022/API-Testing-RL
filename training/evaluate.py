@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 from models import APITestAction, HTTPMethod
 from server.environment import APITestEnvironment
-from .prompts import SYSTEM_PROMPT, format_observation, parse_action
+from .prompts import (
+    PLAN_SYSTEM_PROMPT, format_plan_prompt,
+    parse_action, parse_test_plan,
+)
 from .agents import AGENTS
 
 
@@ -35,72 +38,89 @@ def run_rollout(
 ) -> dict:
     """Run a single episode with a HuggingFace model.
 
-    Args:
-        model: AutoModelForCausalLM instance
-        tokenizer: AutoTokenizer instance
-        task_id: which task to run
-        seed: random seed for domain randomization
+    Uses PLAN mode: the model generates a full test plan (JSON array) in one shot,
+    then all actions are executed sequentially. This matches how training works.
 
-    Returns:
-        dict with episode results (bugs, reward, coverage, etc.)
+    Falls back to multi-turn mode if the model can't produce a valid plan.
     """
     import torch
     import time as _time
 
     env = APITestEnvironment()
     obs = env.reset(seed=seed, task_id=task_id)
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": format_observation(obs)},
-    ]
-
-    total_reward = 0.0
-    steps = 0
     actual_max = max_steps or obs.max_steps
     device_name = str(model.device)
     logger.info(f"  Rollout: {task_id} | max_steps={actual_max} | device={device_name}")
 
-    while not obs.done and steps < actual_max:
-        step_start = _time.time()
-        print(f"\r  Generating step {steps + 1}/{actual_max}...", end="", flush=True)
+    # --- Try plan mode first (matches training) ---
+    plan_prompt = format_plan_prompt(obs)
+    messages = [
+        {"role": "system", "content": PLAN_SYSTEM_PROMPT},
+        {"role": "user", "content": plan_prompt},
+    ]
 
-        prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    # Qwen3 thinking support
+    chat_kwargs = {}
+    if "qwen3" in str(getattr(model, "name_or_path", "") or "").lower():
+        chat_kwargs["enable_thinking"] = True
 
-        with torch.no_grad():
-            output = model.generate(
-                **inputs,
-                max_new_tokens=200,
-                temperature=0.7,
-                do_sample=True,
-                pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
-            )
-        completion = tokenizer.decode(output[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+    prompt_text = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, **chat_kwargs,
+    )
+    inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
 
-        action = parse_action(completion)
-        if action is None:
-            action = APITestAction(method=HTTPMethod.GET, endpoint="/tasks")
+    gen_start = _time.time()
+    print(f"  Generating test plan...", end="", flush=True)
+    with torch.no_grad():
+        output = model.generate(
+            **inputs,
+            max_new_tokens=2048,
+            temperature=0.7,
+            do_sample=True,
+            pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
+        )
+    completion = tokenizer.decode(output[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+    gen_time = _time.time() - gen_start
+    print(f" done ({gen_time:.1f}s)")
 
-        obs = env.step(action)
-        total_reward += obs.reward or 0.0
-        steps += 1
+    # Parse the plan
+    actions = parse_test_plan(completion)
+    if actions:
+        logger.info(f"  Plan generated: {len(actions)} actions")
+    else:
+        # Fallback: try single action parse
+        single = parse_action(completion)
+        if single:
+            actions = [single]
+            logger.info("  Plan parse failed, got 1 action from fallback")
+        else:
+            logger.warning("  Failed to parse any actions from model output")
+            actions = []
 
-        messages.append({"role": "assistant", "content": completion})
-        messages.append({"role": "user", "content": format_observation(obs)})
+    # Limit to max_steps
+    actions = actions[:actual_max]
 
-        elapsed = _time.time() - step_start
-        method_str = action.method.value if hasattr(action.method, "value") else str(action.method)
-        print(f"\r  Step {steps}/{actual_max}: {method_str} {action.endpoint} -> "
-              f"{obs.status_code} | reward={obs.reward:.3f} | bugs={obs.bugs_found_so_far} "
-              f"({elapsed:.1f}s)          ")
-    print()  # newline after progress
+    # Execute all actions
+    total_reward = 0.0
+    for i, action in enumerate(actions):
+        try:
+            obs = env.step(action)
+            total_reward += obs.reward or 0.0
+            method_str = action.method.value if hasattr(action.method, "value") else str(action.method)
+            print(f"  Step {i+1}/{len(actions)}: {method_str} {action.endpoint} -> "
+                  f"{obs.status_code} | reward={obs.reward:.3f} | bugs={obs.bugs_found_so_far}")
+        except Exception as e:
+            print(f"  Step {i+1}/{len(actions)}: ERROR - {e}")
+
+    # If no actions were generated, show that
+    if not actions:
+        print("  (no valid actions generated)")
 
     state = env.state
     return {
         "task_id": task_id,
         "seed": seed,
-        "steps": steps,
+        "steps": len(actions),
         "total_reward": round(total_reward, 4),
         "bugs_found": state.bugs_found,
         "total_bugs": state.total_bugs,

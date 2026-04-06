@@ -18,6 +18,8 @@ class Bug:
     severity: str  # "easy", "medium", "hard"
     description: str
     category: str  # "status_code", "validation", "security", "data_integrity"
+    owasp: str = ""  # OWASP API Security Top 10 (2023) category
+    recommendation: str = ""  # Fix recommendation for bug bounty reports
 
 
 @dataclass
@@ -41,61 +43,113 @@ class BugDetector:
         # === EASY BUGS ===
 
         self._register_bug(
-            Bug("BUG_TASK_01", "easy", "GET /tasks/{id} returns 200 with null for non-existent task", "status_code"),
+            Bug("BUG_TASK_01", "easy",
+                "GET /tasks/{id} returns 200 with null for non-existent task",
+                "status_code",
+                owasp="API8:2023 Security Misconfiguration",
+                recommendation="Return 404 Not Found for non-existent resources"),
             self._detect_null_response_for_missing_task,
         )
         self._register_bug(
-            Bug("BUG_TASK_02", "easy", "POST /tasks with missing title returns 500 instead of 400/422", "validation"),
+            Bug("BUG_TASK_02", "easy",
+                "POST /tasks with missing title returns 500 instead of 400/422",
+                "validation",
+                owasp="API8:2023 Security Misconfiguration",
+                recommendation="Validate required fields and return 400/422 with descriptive error"),
             self._detect_missing_field_500,
         )
         self._register_bug(
-            Bug("BUG_TASK_03", "easy", "GET /tasks?page=-1 returns 200 instead of 400", "validation"),
+            Bug("BUG_TASK_03", "easy",
+                "GET /tasks?page=-1 returns 200 instead of 400",
+                "validation",
+                owasp="API8:2023 Security Misconfiguration",
+                recommendation="Validate pagination parameters: page >= 1, limit > 0"),
             self._detect_negative_page,
         )
 
         # === MEDIUM BUGS ===
 
         self._register_bug(
-            Bug("BUG_TASK_04", "medium", "PUT /tasks/{id} accepts invalid email format for assignee_email", "validation"),
+            Bug("BUG_TASK_04", "medium",
+                "PUT /tasks/{id} accepts invalid email format for assignee_email",
+                "validation",
+                owasp="API8:2023 Security Misconfiguration",
+                recommendation="Validate email format with regex before accepting"),
             self._detect_invalid_email_accepted,
         )
         self._register_bug(
-            Bug("BUG_TASK_05", "medium", "DELETE /tasks/{id} returns 200 for non-existent task", "status_code"),
+            Bug("BUG_TASK_05", "medium",
+                "DELETE /tasks/{id} returns 200 for non-existent task",
+                "status_code",
+                owasp="API8:2023 Security Misconfiguration",
+                recommendation="Check resource existence before deletion, return 404 if missing"),
             self._detect_delete_nonexistent_200,
         )
         self._register_bug(
-            Bug("BUG_TASK_06", "medium", "GET /tasks?limit=999999 has no pagination cap", "validation"),
+            Bug("BUG_TASK_06", "medium",
+                "GET /tasks?limit=999999 has no pagination cap",
+                "validation",
+                owasp="API4:2023 Unrestricted Resource Consumption",
+                recommendation="Cap pagination limit at 100, reject values above maximum"),
             self._detect_no_pagination_cap,
         )
         self._register_bug(
-            Bug("BUG_USER_01", "medium", "POST /users accepts invalid email format", "validation"),
+            Bug("BUG_USER_01", "medium",
+                "POST /users accepts invalid email format",
+                "validation",
+                owasp="API8:2023 Security Misconfiguration",
+                recommendation="Validate email format server-side before creating user"),
             self._detect_user_invalid_email,
         )
         self._register_bug(
-            Bug("BUG_USER_02", "medium", "POST /users response exposes password hash", "security"),
+            Bug("BUG_USER_02", "medium",
+                "POST /users response exposes password hash",
+                "security",
+                owasp="API3:2023 Broken Object Property Level Authorization",
+                recommendation="Never return sensitive fields (password_hash) in API responses"),
             self._detect_password_hash_exposed,
         )
         self._register_bug(
-            Bug("BUG_AUTH_02", "medium", "Login with empty password succeeds", "security"),
+            Bug("BUG_AUTH_02", "medium",
+                "Login with empty password succeeds",
+                "security",
+                owasp="API2:2023 Broken Authentication",
+                recommendation="Validate password is non-empty and verify against stored hash"),
             self._detect_empty_password_login,
         )
 
         # === HARD BUGS ===
 
         self._register_bug(
-            Bug("BUG_TASK_07", "hard", "BOLA: User A can access User B's tasks without authorization check", "security"),
+            Bug("BUG_TASK_07", "hard",
+                "BOLA: User A can access User B's tasks without authorization check",
+                "security",
+                owasp="API1:2023 Broken Object Level Authorization",
+                recommendation="Verify resource ownership: check task.owner_id matches authenticated user"),
             self._detect_bola,
         )
         self._register_bug(
-            Bug("BUG_TASK_08", "hard", "POST /tasks with very long title (>5000 chars) causes 500", "validation"),
+            Bug("BUG_TASK_08", "hard",
+                "POST /tasks with very long title (>5000 chars) causes 500",
+                "validation",
+                owasp="API4:2023 Unrestricted Resource Consumption",
+                recommendation="Add input length validation: title max 200 chars"),
             self._detect_long_input_crash,
         )
         self._register_bug(
-            Bug("BUG_TASK_09", "hard", "SQL injection payload in title is stored verbatim (content injection)", "security"),
+            Bug("BUG_TASK_09", "hard",
+                "SQL injection payload in title is stored verbatim (content injection)",
+                "security",
+                owasp="API8:2023 Security Misconfiguration",
+                recommendation="Sanitize user input before storage, escape HTML/SQL special characters"),
             self._detect_content_injection,
         )
         self._register_bug(
-            Bug("BUG_AUTH_01", "hard", "Auth tokens not user-scoped: User A's token can modify User B's tasks", "security"),
+            Bug("BUG_AUTH_01", "hard",
+                "Auth tokens not user-scoped: User A's token can modify User B's tasks",
+                "security",
+                owasp="API1:2023 Broken Object Level Authorization",
+                recommendation="Enforce ownership check on all write operations (PUT/DELETE)"),
             self._detect_broken_auth,
         )
 

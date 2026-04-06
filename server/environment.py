@@ -24,6 +24,7 @@ from .buggy_api.database import Database
 from .buggy_api.main import create_buggy_api
 from .bug_detector import BugDetector
 from .reward import RewardComputer
+from .graders import TaskGrader, generate_bug_report
 from .graders import TaskGrader
 
 logger = logging.getLogger(__name__)
@@ -375,15 +376,19 @@ class APITestEnvironment(Environment):
                 action_history=self._action_history,
                 created_resources=self._reward_computer.created_ids,
             )
+            # Generate bug bounty report
+            report = generate_bug_report(list(self._found_bugs), self._action_history)
+
             feedback_parts.append(
                 f"\n=== EPISODE COMPLETE ===\n"
                 f"Final Score: {grade.score:.4f}\n"
                 f"Bugs Found: {len(self._found_bugs)}/{self._task['total_bugs']}\n"
                 f"Grade Breakdown: {json.dumps(grade.breakdown, indent=2)}\n"
-                f"Feedback: {grade.feedback}"
+                f"Feedback: {grade.feedback}\n\n"
+                f"{report}"
             )
-            # Use grade score as final reward
-            final_reward = grade.score
+            # Add grade as bonus on top of step reward (not replacement)
+            final_reward = reward_breakdown.total + grade.score
         else:
             final_reward = reward_breakdown.total
 

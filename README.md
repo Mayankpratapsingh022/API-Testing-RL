@@ -1,126 +1,84 @@
-# API Testing Environment 
+# API Testing Environment for OpenEnv
 
-An  RL environment where an AI agent learns to **test REST APIs intelligently** — discovering endpoints, crafting requests, validating responses, finding bugs, and handling edge cases.
+An RL environment that trains AI agents to become **automated API security testers** — discovering endpoints, crafting requests, finding vulnerabilities mapped to the **OWASP API Security Top 10**, and generating structured bug bounty reports.
 
-The agent is given an API specification and must explore a deliberately buggy Task Management API, earning rewards for coverage, correctness, and bug discovery. Think of it as training an AI to become an automated QA engineer.
+The agent explores a deliberately buggy Task Management API with 13 planted vulnerabilities across 6 OWASP categories. It earns rewards for coverage, correctness, and bug discovery. At episode end, a security assessment report is auto-generated.
 
 ---
 
 ## Why This Matters
 
 - Every software team tests APIs manually or with hand-written test suites
-- Existing tools (Postman, Schemathesis) require manual test design or brute-force fuzzing
-- Academic research (IEEE/ACM 2023-2024) shows RL **outperforms traditional tools** in coverage and fault-finding
-- This environment provides a standardized training ground for intelligent API testing agents
+- Existing tools (Postman, Schemathesis, OWASP ZAP) require manual test design or brute-force fuzzing
+- Academic research shows RL **outperforms traditional tools** in coverage and fault-finding (ARAT-RL, IEEE/ACM 2023; APIRL, AAAI 2025)
+- This environment provides a standardized RL training ground with **verifiable rewards** — deterministic bug detection, not LLM judges
 
 ---
 
-## Environment Design
+## OWASP Coverage
 
-### Architecture
+All 13 bugs are mapped to the OWASP API Security Top 10 (2023):
 
-```
-                                        ┌─────────────────────────┐
-┌──────────────┐    APITestAction       │    OpenEnv Environment  │
-│   AI Agent   │ ──────────────────────>│    (reset/step/state)   │
-│   (learner)  │                        │         │               │
-│              │ <──────────────────────│    ┌────▼────────────┐  │
-└──────────────┘   APITestObservation   │    │  Buggy REST API │  │
-                   + reward + feedback  │    │  (FastAPI+SQLite)│  │
-                                        │    └─────────────────┘  │
-                                        └─────────────────────────┘
-```
-
-The environment wraps a **deliberately buggy Task Management API** running in-process. When the agent sends an HTTP request (action), the environment forwards it to the buggy API, analyzes the response, checks for bug detection, computes multi-signal rewards, and returns the observation.
-
-### Action Space
-
-```python
-class APITestAction(Action):
-    method: HTTPMethod        # GET, POST, PUT, DELETE, PATCH
-    endpoint: str             # /tasks, /users/1, /auth/login
-    headers: dict[str, str]   # {"Authorization": "Bearer xxx"}
-    query_params: dict        # {"page": 1, "limit": 10}
-    body: dict | None         # {"title": "Test", "email": "a@b.com"}
-    expected_status: int|None # What the agent expects (used for scoring)
-```
-
-### Observation Space
-
-```python
-class APITestObservation(Observation):
-    # API specification
-    available_endpoints: list[dict]      # Full endpoint catalog
-
-    # Response from last request
-    status_code: int                     # HTTP status
-    response_body: Any                   # JSON response
-    response_headers: dict               # Response headers
-    response_time_ms: float              # Latency
-
-    # Feedback & progress
-    feedback: str                        # Human-readable feedback
-    bugs_found_so_far: int               # Running bug count
-    coverage_summary: dict               # Endpoints/methods/status codes tested
-
-    # Context for chaining
-    known_resource_ids: dict[str, list]  # IDs from POST responses
-    auth_tokens: dict[str, str]          # Tokens from login
-
-    # Episode info
-    task_id: str
-    steps_taken: int
-    max_steps: int
-    done: bool
-    reward: float
-```
+| OWASP Category | Bugs | Description |
+|---------------|------|-------------|
+| **API1** Broken Object Level Authorization | BUG_TASK_07, BUG_AUTH_01 | Users can access/modify other users' resources |
+| **API2** Broken Authentication | BUG_AUTH_02 | Login succeeds with empty password |
+| **API3** Broken Object Property Level Auth | BUG_USER_02 | Response exposes password_hash field |
+| **API4** Unrestricted Resource Consumption | BUG_TASK_06, BUG_TASK_08 | No pagination cap, long input crashes server |
+| **API8** Security Misconfiguration | BUG_TASK_01-05, BUG_TASK_09, BUG_USER_01 | Wrong status codes, missing validation, stored injection |
 
 ---
 
-## Tasks (Easy -> Medium -> Hard)
+## Architecture
 
-### Task 1: Basic Endpoint Validation (Easy)
-**Goal:** Test all CRUD endpoints with valid inputs, verify status codes, find obvious bugs.
+```
+┌──────────────────────────────────────────────────────────┐
+│                   OpenEnv Server (:8000)                  │
+│                                                          │
+│  Agent ──action──> environment.py                        │
+│        <──obs────  │                                     │
+│                    ├──> buggy_api/ (in-process FastAPI)   │
+│                    │    └── routes/ (tasks, users, auth)  │
+│                    │    └── database.py (SQLite, reset    │
+│                    │        with seed for randomization)  │
+│                    │                                     │
+│                    ├──> bug_detector.py (13 detectors)   │
+│                    ├──> reward.py (5-signal rewards)     │
+│                    └──> graders.py (scoring + bug report)│
+└──────────────────────────────────────────────────────────┘
+```
 
-| Criteria | Weight | Description |
-|----------|--------|-------------|
-| GET coverage | 0.25 | Test all GET endpoints |
-| POST testing | 0.20 | Create resources successfully |
-| PUT/DELETE | 0.15 | Test update and delete |
-| Bug discovery | 0.20 | Find 2+ easy bugs |
-| Schema validation | 0.20 | See 4+ different status codes |
+Each `reset(seed=N)` creates a unique database with different users, tasks, and data — preventing memorization during GRPO training.
 
-**Bugs to find:** 3 (wrong status codes, missing field handling)
-**Max steps:** 25
+---
 
-### Task 2: Edge Cases & Error Handling (Medium)
-**Goal:** Test boundary conditions, invalid inputs, chain CRUD operations.
+## Planted Bugs (13 vulnerabilities)
 
-| Criteria | Weight | Description |
-|----------|--------|-------------|
-| Missing fields | 0.15 | Test with missing required fields |
-| Invalid types | 0.15 | Send wrong data types |
-| Boundary values | 0.15 | Negative pages, huge limits |
-| Non-existent resources | 0.15 | Test with invalid IDs |
-| Bug discovery | 0.20 | Find 3+ edge case bugs |
-| Dependency chaining | 0.20 | Create -> read -> update -> delete |
+| ID | Severity | OWASP | Description |
+|----|----------|-------|-------------|
+| BUG_TASK_01 | Easy | API8 | GET /tasks/{id} returns 200+null for missing task (should be 404) |
+| BUG_TASK_02 | Easy | API8 | POST /tasks without title returns 500 (should be 400) |
+| BUG_TASK_03 | Easy | API8 | GET /tasks?page=-1 returns 200 (should be 400) |
+| BUG_TASK_04 | Medium | API8 | PUT accepts invalid email format without validation |
+| BUG_TASK_05 | Medium | API8 | DELETE returns 200 for non-existent task (should be 404) |
+| BUG_TASK_06 | Medium | API4 | No pagination cap — limit=999999 accepted |
+| BUG_USER_01 | Medium | API8 | POST /users accepts invalid email |
+| BUG_USER_02 | Medium | API3 | POST /users response exposes password_hash |
+| BUG_AUTH_02 | Medium | API2 | Login with empty password succeeds |
+| BUG_TASK_07 | Hard | API1 | BOLA: any user can access any task (no ownership check) |
+| BUG_TASK_08 | Hard | API4 | Long title (>5000 chars) crashes server with 500 |
+| BUG_TASK_09 | Hard | API8 | SQL injection payload stored verbatim |
+| BUG_AUTH_01 | Hard | API1 | User A's token can modify User B's tasks |
 
-**Bugs to find:** 9 (validation gaps, pagination, email format)
-**Max steps:** 35
+---
 
-### Task 3: Security & Multi-Step Workflows (Hard)
-**Goal:** Find authorization flaws, injection vulnerabilities, workflow bugs.
+## Tasks (3 difficulty levels)
 
-| Criteria | Weight | Description |
-|----------|--------|-------------|
-| Cross-user auth | 0.20 | Login as 2+ users, test access |
-| Injection testing | 0.20 | Try SQL injection patterns |
-| State consistency | 0.20 | Create -> delete -> re-fetch |
-| Security bugs | 0.20 | Find 2+ security vulnerabilities |
-| Workflow coverage | 0.20 | 80%+ API coverage |
-
-**Bugs to find:** 13 (BOLA, broken auth, content injection, long input crash)
-**Max steps:** 45
+| Task | Difficulty | Steps | Bugs | Focus |
+|------|-----------|-------|------|-------|
+| basic_validation | Easy | 25 | 3 | CRUD testing, status code verification |
+| edge_cases | Medium | 35 | 9 | Invalid inputs, boundary values, chaining |
+| security_workflows | Hard | 45 | 13 | BOLA, auth bypass, injection, state consistency |
 
 ---
 
@@ -136,132 +94,85 @@ Multi-signal partial rewards at each step:
 | **Exploration** | 0.0 - 0.05 | Novel action patterns |
 | **Penalty** | -0.08 | Exact duplicate requests |
 
-Final episode score (0.0 - 1.0) computed by task-specific grader.
+Final episode score (0.0 - 1.0) from task-specific grader + auto-generated bug bounty report.
 
 ---
 
-## Planted Bugs
+## Bug Bounty Report
 
-| ID | Severity | Description |
-|----|----------|-------------|
-| BUG_TASK_01 | Easy | GET /tasks/{id} returns 200+null for missing task |
-| BUG_TASK_02 | Easy | POST /tasks without title returns 500 |
-| BUG_TASK_03 | Easy | GET /tasks?page=-1 returns 200 |
-| BUG_TASK_04 | Medium | PUT accepts invalid email format |
-| BUG_TASK_05 | Medium | DELETE returns 200 for non-existent task |
-| BUG_TASK_06 | Medium | No pagination cap (limit=999999 works) |
-| BUG_USER_01 | Medium | POST /users accepts invalid email |
-| BUG_USER_02 | Medium | Response exposes password_hash |
-| BUG_AUTH_02 | Medium | Empty password login succeeds |
-| BUG_TASK_07 | Hard | BOLA: any user can access any task |
-| BUG_TASK_08 | Hard | Long title (>5000 chars) causes 500 |
-| BUG_TASK_09 | Hard | SQL injection payload stored verbatim |
-| BUG_AUTH_01 | Hard | User A's token can modify User B's tasks |
+At episode end, the environment auto-generates a structured security assessment report:
+
+```
+## API Security Assessment Report
+
+**Vulnerabilities Found:** 3
+**Critical/Hard:** 0 | **Medium:** 1 | **Low/Easy:** 2
+
+### MEDIUM: Login with empty password succeeds
+- **ID:** BUG_AUTH_02
+- **OWASP:** API2:2023 Broken Authentication
+- **Recommendation:** Validate password is non-empty and verify against stored hash
+
+### LOW: GET /tasks/{id} returns 200 with null for non-existent task
+- **ID:** BUG_TASK_01
+- **OWASP:** API8:2023 Security Misconfiguration
+- **Recommendation:** Return 404 Not Found for non-existent resources
+```
 
 ---
 
 ## Setup & Usage
 
-### Prerequisites
-
-- Python 3.10+
-- Docker (for containerized execution)
-
 ### Local Development
 
 ```bash
-# Clone and install
 cd api_testing_env
 pip install -e .
 
-# Or with uv
-uv sync
-
-# Run the server
+# Run the OpenEnv server
 uvicorn server.app:app --host 0.0.0.0 --port 8000
 
-# Or
-uv run server
-```
-
-### Gradio UI (Interactive Dashboard)
-
-```bash
-# Install gradio
+# Interactive UI
 pip install gradio
+python gradio_app.py    # http://localhost:7860
 
-# Launch the interactive UI
-cd api_testing_env
-python gradio_app.py
-
-# Opens at http://localhost:7860
+# Run baselines
+python baseline.py --url http://localhost:8000 --task all --agent all
 ```
-
-The Gradio UI provides:
-- **Task selection** — choose easy/medium/hard tasks and reset
-- **Request builder** — craft HTTP requests with method, endpoint, headers, body
-- **Quick actions** — one-click bug-hunting actions (e.g., "GET /tasks/999999")
-- **Live scoreboard** — step counter, bugs found, coverage progress bar
-- **Reward breakdown** — per-step coverage/validity/bug/exploration/penalty signals
-- **Activity log** — scrollable history of all requests and responses
-- **Baseline agents** — watch random/sequential/smart agents run automatically
-- **Bug tracker** — color-coded list of discovered bugs with severity
 
 ### Docker
 
 ```bash
-# Build
 docker build -t api-testing-env .
-
-# Run
 docker run -p 8000:8000 api-testing-env
-
-# Health check
 curl http://localhost:8000/health
 ```
 
-### Using the Client
-
-```python
-from api_testing_env.client import APITestEnv
-from api_testing_env.models import APITestAction, HTTPMethod
-
-async with APITestEnv(base_url="http://localhost:8000") as env:
-    # Reset with a task
-    result = await env.reset(task_id="basic_validation")
-    print(result.observation.feedback)
-
-    # Send a test action
-    result = await env.step(APITestAction(
-        method=HTTPMethod.GET,
-        endpoint="/tasks",
-        expected_status=200,
-    ))
-    print(f"Status: {result.observation.status_code}")
-    print(f"Reward: {result.reward}")
-    print(f"Bugs found: {result.observation.bugs_found_so_far}")
-```
-
-### Running Baselines
+### GRPO Training
 
 ```bash
-# Start server first, then:
-python baseline.py --url http://localhost:8000 --task all --agent all
+pip install trl transformers peft torch datasets
 
-# Run specific agent on specific task
-python baseline.py --url http://localhost:8000 --task security_workflows --agent smart
+# Quick test (CPU)
+python -m training.grpo --test-mode
+
+# Full training (GPU)
+python -m training.grpo \
+  --model-id Qwen/Qwen3-1.7B \
+  --num-episodes 100 \
+  --max-steps 200 \
+  --push-to-hub --hf-repo-id your-username/api-tester-grpo \
+  --use-wandb --wandb-project api-testing-grpo
 ```
 
----
+The model outputs a **full test plan** (JSON array of 15-25 actions) in one completion. GRPO optimizes complete testing strategies, not single actions. See [training/README.md](training/README.md) for details.
 
-## Baseline Scores
+### Deploy to HuggingFace Spaces
 
-| Agent | Basic Validation | Edge Cases | Security Workflows |
-|-------|-----------------|------------|-------------------|
-| Random | ~0.15 | ~0.08 | ~0.03 |
-| Sequential | ~0.45 | ~0.25 | ~0.10 |
-| Smart (Heuristic) | ~0.65 | ~0.45 | ~0.35 |
-| **Ideal (RL-trained)** | **1.0** | **1.0** | **1.0** |
+```bash
+pip install openenv-core
+openenv push --repo-id your-username/api-testing-env
+```
 
 ---
 
@@ -269,51 +180,44 @@ python baseline.py --url http://localhost:8000 --task security_workflows --agent
 
 ```
 api_testing_env/
-├── __init__.py
 ├── models.py                    # APITestAction, APITestObservation, APITestState
-├── client.py                    # EnvClient subclass
-├── openenv.yaml                 # Environment manifest
+├── client.py                    # EnvClient subclass (WebSocket)
+├── openenv.yaml                 # OpenEnv manifest
 ├── pyproject.toml               # Dependencies
-├── Dockerfile                   # Container specification
-├── baseline.py                  # Baseline inference script
-├── gradio_app.py                # Interactive Gradio UI dashboard
-├── README.md                    # This file
-└── server/
-    ├── __init__.py
-    ├── app.py                   # FastAPI server (create_app)
-    ├── environment.py           # OpenEnv Environment (reset/step/state)
-    ├── bug_detector.py          # Bug detection logic
-    ├── reward.py                # Multi-signal reward computation
-    ├── graders.py               # Task-specific grading
-    └── buggy_api/               # The deliberately buggy API
-        ├── __init__.py
-        ├── main.py              # FastAPI app factory
-        ├── database.py          # In-memory SQLite
-        ├── models.py            # Pydantic schemas
-        └── routes/
-            ├── __init__.py
-            ├── tasks.py         # Task CRUD (10 planted bugs)
-            ├── users.py         # User management (2 bugs)
-            └── auth.py          # Authentication (2 bugs)
-```
-
----
-
-## Deployment to HuggingFace Spaces
-
-```bash
-# Install OpenEnv CLI
-pip install openenv-core
-
-# Push to HuggingFace
-openenv push --repo-id your-username/api-testing-env
+├── Dockerfile                   # Container for HuggingFace Spaces
+│
+├── server/                      # ENVIRONMENT (OpenEnv core)
+│   ├── app.py                   #   FastAPI server (create_app)
+│   ├── environment.py           #   reset() / step() / state()
+│   ├── bug_detector.py          #   13 OWASP-labeled bug detectors
+│   ├── reward.py                #   5-signal reward computation
+│   ├── graders.py               #   Task scoring + bug bounty report
+│   └── buggy_api/               #   The deliberately buggy REST API
+│       ├── main.py              #     FastAPI app factory
+│       ├── database.py          #     In-memory SQLite (seed-randomized)
+│       ├── models.py            #     Pydantic schemas
+│       └── routes/              #     tasks.py, users.py, auth.py
+│
+├── training/                    # GRPO TRAINING
+│   ├── prompts.py               #   System prompts + action parsing
+│   ├── rewards.py               #   Plan-based reward functions
+│   ├── agents.py                #   Baseline agents (random/sequential/smart)
+│   ├── grpo.py                  #   GRPO training loop (TRL + LoRA)
+│   └── evaluate.py              #   Rollout runner + evaluation
+│
+├── gradio_app.py                # Interactive UI dashboard
+├── baseline.py                  # Wrapper -> training/evaluate.py
+├── train_grpo.py                # Wrapper -> training/grpo.py
+└── data/tasks.json              # Task definitions + bug registry
 ```
 
 ---
 
 ## References
 
-- [Adaptive REST API Testing with RL (IEEE/ACM 2023)](https://dl.acm.org/doi/10.1109/ASE56229.2023.00218)
+- [OWASP API Security Top 10 (2023)](https://owasp.org/API-Security/)
+- [APIRL: Deep RL for REST API Fuzzing (AAAI 2025)](https://arxiv.org/abs/2412.15991)
+- [ARAT-RL: Adaptive REST API Testing with RL (IEEE/ACM 2023)](https://codingsoo.github.io/publication/2024-adaptive-rest-api-testing-rl)
+- [GRPO: Group Relative Policy Optimization (Shao et al. 2024)](https://arxiv.org/abs/2402.03300)
+- [DeepSeek-R1: Verifiable Rewards for RL (2024)](https://arxiv.org/abs/2401.02954)
 - [OpenEnv Framework](https://meta-pytorch.org/OpenEnv/index.html)
-- [OWASP API Security Top 10](https://owasp.org/API-Security/)
-- [REST API Testing Best Practices](https://www.code-intelligence.com/rest-api-testing)

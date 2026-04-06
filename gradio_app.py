@@ -34,6 +34,12 @@ def new_session():
 # Core logic
 # =====================================================================
 
+def _generate_report(bug_ids, action_history):
+    """Generate OWASP bug bounty report from discovered bugs."""
+    from server.graders import generate_bug_report
+    return generate_bug_report(bug_ids, action_history)
+
+
 def reset_env(task_id, state):
     if not state:
         state = new_session()
@@ -55,6 +61,7 @@ def reset_env(task_id, state):
         "",
         f"0 / {t['max_steps']}",
         "No bugs found yet.",
+        "No bugs found yet. Send requests to discover vulnerabilities.",
         "No tokens acquired yet.",
         "No resources created yet.",
     )
@@ -62,20 +69,20 @@ def reset_env(task_id, state):
 
 def send_request(method, endpoint, headers_str, params_str, body_str, expected_status, state):
     if not state or not state.initialized:
-        return (state, "Environment not initialized. Click 'Reset' first.", "", "", "", "", "", "", "", "", "")
+        return (state, "Environment not initialized. Click 'Reset' first.", "", "", "", "", "", "", "", "", "", "")
 
     try:
         headers = json.loads(headers_str) if headers_str.strip() else {}
     except json.JSONDecodeError:
-        return (state, "Invalid JSON in headers.", "", "", "", "", "", "", "", "", "")
+        return (state, "Invalid JSON in headers.", "", "", "", "", "", "", "", "", "", "")
     try:
         query_params = json.loads(params_str) if params_str.strip() else {}
     except json.JSONDecodeError:
-        return (state, "Invalid JSON in query params.", "", "", "", "", "", "", "", "", "")
+        return (state, "Invalid JSON in query params.", "", "", "", "", "", "", "", "", "", "")
     try:
         body = json.loads(body_str) if body_str.strip() else None
     except json.JSONDecodeError:
-        return (state, "Invalid JSON in body.", "", "", "", "", "", "", "", "", "")
+        return (state, "Invalid JSON in body.", "", "", "", "", "", "", "", "", "", "")
 
     exp = int(expected_status) if expected_status.strip() else None
     action = APITestAction(
@@ -125,6 +132,7 @@ def send_request(method, endpoint, headers_str, params_str, body_str, expected_s
         format_log(state.step_log),
         f"{obs.steps_taken} / {obs.max_steps}" + (" (DONE)" if obs.done else ""),
         format_bug_list(es.bugs_found_ids),
+        _generate_report(es.bugs_found_ids, state.step_log),
         format_auth_tokens(obs.auth_tokens),
         format_resources(obs.known_resource_ids),
     )
@@ -156,7 +164,7 @@ def apply_quick_action(action_name, _state):
 
 def run_baseline_agent(agent_type, state):
     if not state or not state.initialized:
-        yield state, "Environment not initialized.", "", "", "", "", "", "", "", "", ""
+        yield state, "Environment not initialized.", "", "", "", "", "", "", "", "", "", ""
         return
 
     from training.agents import RandomAgent, SequentialAgent, SmartAgent
@@ -212,6 +220,7 @@ def run_baseline_agent(agent_type, state):
             format_log(state.step_log),
             f"{obs.steps_taken} / {obs.max_steps}" + (" (DONE)" if obs.done else ""),
             format_bug_list(es.bugs_found_ids),
+            _generate_report(es.bugs_found_ids, state.step_log),
             format_auth_tokens(obs.auth_tokens),
             format_resources(obs.known_resource_ids),
         )
@@ -383,15 +392,18 @@ def format_bug_list(bug_ids):
         bug = detector.bugs.get(bid)
         if bug:
             fg = severity_colors.get(bug.severity, "#6b7280")
+            owasp_badge = f' | {bug.owasp.split(" ")[0]}' if bug.owasp else ""
             cards.append(
                 f'<div style="border:1px solid {fg}40;border-radius:8px;padding:8px 10px;'
                 f'margin-bottom:6px;background:{fg}0d;">'
                 f'<div style="display:flex;justify-content:space-between;align-items:center;">'
                 f'<span style="font-weight:700;font-size:0.85em;">{bid}</span>'
                 f'<span style="background:{fg};color:#fff;padding:1px 8px;border-radius:10px;'
-                f'font-size:0.75em;font-weight:600;">{bug.severity.upper()}</span></div>'
+                f'font-size:0.75em;font-weight:600;">{bug.severity.upper()}{owasp_badge}</span></div>'
                 f'<div style="margin-top:4px;font-size:0.85em;opacity:0.7;">'
-                f'{bug.description}</div></div>'
+                f'{bug.description}</div>'
+                f'<div style="margin-top:2px;font-size:0.78em;opacity:0.5;font-style:italic;">'
+                f'{bug.owasp}</div></div>'
             )
     return "\n".join(cards)
 
@@ -463,13 +475,10 @@ def build_ui():
 
         gr.Markdown(
             "# API Testing Environment\n"
-            "This is a reinforcement learning playground for training AI agents to test REST APIs. "
-            "A simulated API server with **intentionally hidden bugs** is provided — the agent "
-            "(or you, manually) sends HTTP requests and earns **rewards** for finding bugs, "
-            "covering new endpoints, and sending valid requests. "
-            "Use **Manual Testing** to craft requests yourself, or run a **Baseline Agent** to "
-            "watch an automated strategy in action. The goal: maximize your score by discovering "
-            "all bugs within the step limit."
+            "An OpenEnv RL environment that trains AI agents to become automated **API security testers**. "
+            "A simulated API server with **13 hidden vulnerabilities** mapped to the **OWASP API Security Top 10** is provided. "
+            "Send HTTP requests, earn rewards for finding bugs and covering endpoints, and generate a **bug bounty report** at episode end. "
+            "Use **Manual Testing** to craft requests yourself, or run a **Baseline Agent** to watch an automated strategy."
         )
 
         with gr.Row():
@@ -564,24 +573,28 @@ def build_ui():
 
             # ── Right Panel ──
             with gr.Column(scale=1):
-                gr.Markdown("### Discovered Bugs")
-                bug_list_display = gr.Markdown("No bugs found yet.")
+                with gr.Tabs():
+                    with gr.Tab("Discovered Bugs"):
+                        bug_list_display = gr.Markdown("No bugs found yet.")
 
-                gr.Markdown("---")
-                gr.Markdown("### Activity Log")
-                log_display = gr.Markdown("No steps yet.")
+                    with gr.Tab("Bug Report"):
+                        gr.Markdown("*Auto-generated OWASP security report. Populates as bugs are found.*")
+                        bug_report_display = gr.Markdown("No bugs found yet. Send requests to discover vulnerabilities.")
+
+                    with gr.Tab("Activity Log"):
+                        log_display = gr.Markdown("No steps yet.")
 
         # ── Wiring ──
         reset_outputs = [
             session, status_box, feedback_display, response_display,
             reward_display, bug_display, coverage_display, log_display,
-            step_display, bug_list_display, auth_display, resource_display,
+            step_display, bug_list_display, bug_report_display, auth_display, resource_display,
         ]
 
         step_outputs = [
             session, feedback_display, response_display, reward_display,
             bug_display, coverage_display, log_display, step_display,
-            bug_list_display, auth_display, resource_display,
+            bug_list_display, bug_report_display, auth_display, resource_display,
         ]
 
         reset_btn.click(fn=reset_env, inputs=[task_dropdown, session], outputs=reset_outputs)
