@@ -402,33 +402,52 @@ def train_grpo(args):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    import torch
+    if torch.cuda.is_available():
+        device_map = "auto"
+        dtype = torch.bfloat16
+        logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+    elif torch.backends.mps.is_available():
+        device_map = "auto"
+        dtype = torch.float16
+        logger.info("Using Apple MPS")
+    else:
+        device_map = None
+        dtype = torch.float32
+        logger.warning("No GPU found — running on CPU (will be very slow)")
+
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
         trust_remote_code=True,
-        torch_dtype="auto",
-        device_map="auto" if not args.test_mode else None,
+        torch_dtype=dtype,
+        device_map=device_map,
     )
 
     # --- Step 3: Evaluate base model BEFORE training ---
-    logger.info("=" * 60)
-    logger.info("Evaluating BASE model (before GRPO)...")
-    logger.info("=" * 60)
     base_results = {}
-    for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
-        result = run_rollout(model, tokenizer, task_id=task_id, seed=9999)
-        base_results[task_id] = result
-        logger.info(
-            f"  [BASE] {task_id}: reward={result['total_reward']:.3f}, "
-            f"bugs={result['bugs_found']}/{result['total_bugs']}, "
-            f"coverage={result['coverage_pct']:.1f}%"
-        )
-        if args.use_wandb and wandb_run:
-            import wandb
-            wandb.log({
-                f"base_model/{task_id}/reward": result["total_reward"],
-                f"base_model/{task_id}/bugs": result["bugs_found"],
-                f"base_model/{task_id}/coverage": result["coverage_pct"],
-            })
+    if not args.skip_eval:
+        logger.info("=" * 60)
+        logger.info(f"Evaluating BASE model (before GRPO, max {args.eval_max_steps} steps/task)...")
+        logger.info("=" * 60)
+        for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
+            result = run_rollout(model, tokenizer, task_id=task_id, seed=9999, max_steps=args.eval_max_steps)
+            base_results[task_id] = result
+            logger.info(
+                f"  [BASE] {task_id}: reward={result['total_reward']:.3f}, "
+                f"bugs={result['bugs_found']}/{result['total_bugs']}, "
+                f"coverage={result['coverage_pct']:.1f}%"
+            )
+            if args.use_wandb and wandb_run:
+                import wandb
+                wandb.log({
+                    f"base_model/{task_id}/reward": result["total_reward"],
+                    f"base_model/{task_id}/bugs": result["bugs_found"],
+                    f"base_model/{task_id}/coverage": result["coverage_pct"],
+                })
+    else:
+        logger.info("Skipping base model evaluation (--skip-eval)")
+        for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
+            base_results[task_id] = {"total_reward": 0, "bugs_found": 0, "total_bugs": 0, "coverage_pct": 0}
 
     # --- Step 4: LoRA config ---
     lora_config = LoraConfig(
@@ -517,32 +536,37 @@ def train_grpo(args):
                 logger.info("Make sure you're logged in: huggingface-cli login")
 
     # --- Step 9: Evaluate AFTER training ---
-    logger.info("=" * 60)
-    logger.info("Evaluating TRAINED model (after GRPO)...")
-    logger.info("=" * 60)
     trained_results = {}
-    for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
-        result = run_rollout(model, tokenizer, task_id=task_id, seed=9999)
-        trained_results[task_id] = result
-        base = base_results[task_id]
-        reward_delta = result["total_reward"] - base["total_reward"]
-        bug_delta = result["bugs_found"] - base["bugs_found"]
-        cov_delta = result["coverage_pct"] - base["coverage_pct"]
-        logger.info(
-            f"  [TRAINED] {task_id}: reward={result['total_reward']:.3f} ({reward_delta:+.3f}), "
-            f"bugs={result['bugs_found']}/{result['total_bugs']} ({bug_delta:+d}), "
-            f"coverage={result['coverage_pct']:.1f}% ({cov_delta:+.1f}%)"
-        )
-        if args.use_wandb and wandb_run:
-            import wandb
-            wandb.log({
-                f"trained_model/{task_id}/reward": result["total_reward"],
-                f"trained_model/{task_id}/bugs": result["bugs_found"],
-                f"trained_model/{task_id}/coverage": result["coverage_pct"],
-                f"delta/{task_id}/reward": reward_delta,
-                f"delta/{task_id}/bugs": bug_delta,
-                f"delta/{task_id}/coverage": cov_delta,
-            })
+    if not args.skip_eval:
+        logger.info("=" * 60)
+        logger.info(f"Evaluating TRAINED model (after GRPO, max {args.eval_max_steps} steps/task)...")
+        logger.info("=" * 60)
+        for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
+            result = run_rollout(model, tokenizer, task_id=task_id, seed=9999, max_steps=args.eval_max_steps)
+            trained_results[task_id] = result
+            base = base_results[task_id]
+            reward_delta = result["total_reward"] - base.get("total_reward", 0)
+            bug_delta = result["bugs_found"] - base.get("bugs_found", 0)
+            cov_delta = result["coverage_pct"] - base.get("coverage_pct", 0)
+            logger.info(
+                f"  [TRAINED] {task_id}: reward={result['total_reward']:.3f} ({reward_delta:+.3f}), "
+                f"bugs={result['bugs_found']}/{result['total_bugs']} ({bug_delta:+d}), "
+                f"coverage={result['coverage_pct']:.1f}% ({cov_delta:+.1f}%)"
+            )
+            if args.use_wandb and wandb_run:
+                import wandb
+                wandb.log({
+                    f"trained_model/{task_id}/reward": result["total_reward"],
+                    f"trained_model/{task_id}/bugs": result["bugs_found"],
+                    f"trained_model/{task_id}/coverage": result["coverage_pct"],
+                    f"delta/{task_id}/reward": reward_delta,
+                    f"delta/{task_id}/bugs": bug_delta,
+                    f"delta/{task_id}/coverage": cov_delta,
+                })
+    else:
+        logger.info("Skipping trained model evaluation (--skip-eval)")
+        for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
+            trained_results[task_id] = {"total_reward": 0, "bugs_found": 0, "total_bugs": 0, "coverage_pct": 0}
 
     # --- Step 10: Print final comparison table ---
     print("\n" + "=" * 95)
@@ -632,6 +656,11 @@ def main():
     parser.add_argument("--push-to-hub", action="store_true", help="Push trained model to HF Hub")
     parser.add_argument("--hf-repo-id", type=str, default=None,
                         help="HF Hub repo ID (e.g., your-username/api-tester-grpo)")
+
+    # Evaluation
+    parser.add_argument("--skip-eval", action="store_true", help="Skip base/trained model evaluation")
+    parser.add_argument("--eval-max-steps", type=int, default=10,
+                        help="Max steps per task during evaluation (default: 10, reduces eval time)")
 
     # Weights & Biases
     parser.add_argument("--use-wandb", action="store_true", help="Enable Weights & Biases logging")
