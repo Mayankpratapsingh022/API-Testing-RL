@@ -1,0 +1,29 @@
+# Core dependencies
+openenv-core[core] @ git+https://github.com/meta-pytorch/OpenEnv.git@v0.2.1
+fastapi>=0.104.0
+uvicorn>=0.24.0
+httpx>=0.25.0
+pydantic>=2.0.0
+
+# Training dependencies
+trl>=0.29.0
+torch>=2.1.0
+peft>=0.7.0
+transformers>=4.40.0
+datasets>=2.16.0
+
+# Weights & Biases (optional but recommended)
+wandb>=0.16.0
+
+# HuggingFace Hub (for model push)
+huggingface-hub>=0.20.0
+
+# Plots and metrics
+matplotlib>=3.8.0
+
+# UI (optional)
+gradio>=5.0.0
+
+# Dev / testing
+pytest>=8.0.0
+pytest-cov>=4.0.0

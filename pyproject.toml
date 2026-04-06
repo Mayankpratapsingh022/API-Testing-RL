@@ -24,11 +24,14 @@ dev = [
     "pytest-cov>=4.0.0",
 ]
 train = [
-    "trl[vllm]>=0.29.0",
-    "torch>=2.8.0",
-    "peft",
-    "transformers",
-    "datasets",
+    "trl>=0.29.0",
+    "torch>=2.1.0",
+    "peft>=0.7.0",
+    "transformers>=4.40.0",
+    "datasets>=2.16.0",
+    "wandb>=0.16.0",
+    "huggingface-hub>=0.20.0",
+    "matplotlib>=3.8.0",
 ]
 
 [project.scripts]

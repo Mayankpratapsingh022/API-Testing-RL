@@ -2,9 +2,10 @@
 """
 Evaluation and rollout runner.
 
-- run_rollout():  Run a single episode with a HuggingFace model
-- run_baseline(): Run baseline agents against the local environment
-- main():         CLI for running baselines against a remote server
+- run_rollout():        Run a single episode with a HuggingFace model
+- run_baseline_local(): Run baseline agents against the local environment
+- run_baseline():       Run baseline agents against a remote server
+- main():              CLI for running baselines
 """
 
 import argparse
@@ -99,6 +100,75 @@ def run_rollout(
         "coverage_pct": state.coverage_pct,
         "bugs_found_ids": state.bugs_found_ids,
     }
+
+
+def run_baseline_local(
+    agent_name: str = "all",
+    task_id: str = "all",
+    seed: int = 42,
+) -> list[dict]:
+    """Run baseline agents against the local environment (no server needed).
+
+    Args:
+        agent_name: "random", "sequential", "smart", or "all"
+        task_id: task ID or "all"
+        seed: random seed
+
+    Returns:
+        List of result dicts with agent, task_id, total_reward, bugs_found, etc.
+    """
+    tasks = ["basic_validation", "edge_cases", "security_workflows"] if task_id == "all" else [task_id]
+    agents = list(AGENTS.items()) if agent_name == "all" else [(agent_name, AGENTS[agent_name])]
+
+    results = []
+    for tid in tasks:
+        for aname, agent_cls in agents:
+            random.seed(seed)
+            agent = agent_cls()
+            env = APITestEnvironment()
+            obs = env.reset(seed=seed, task_id=tid)
+
+            total_reward = 0.0
+            step = 0
+
+            while not obs.done and step < obs.max_steps:
+                obs_dict = {
+                    "status_code": obs.status_code,
+                    "response_body": obs.response_body,
+                    "feedback": obs.feedback,
+                    "bugs_found_so_far": obs.bugs_found_so_far,
+                    "coverage_summary": obs.coverage_summary,
+                    "known_resource_ids": obs.known_resource_ids,
+                    "auth_tokens": obs.auth_tokens,
+                    "steps_taken": obs.steps_taken,
+                    "max_steps": obs.max_steps,
+                }
+
+                action = agent.act(obs_dict)
+                obs = env.step(action)
+                total_reward += obs.reward or 0.0
+                step += 1
+
+            state = env.state
+            result = {
+                "agent": aname,
+                "task_id": tid,
+                "seed": seed,
+                "steps": step,
+                "total_reward": round(total_reward, 4),
+                "bugs_found": state.bugs_found,
+                "total_bugs": state.total_bugs,
+                "coverage_pct": state.coverage_pct,
+                "bugs_found_ids": state.bugs_found_ids,
+            }
+            results.append(result)
+            logger.info(
+                f"  [{aname}] {tid}: reward={result['total_reward']:.4f}, "
+                f"bugs={result['bugs_found']}/{result['total_bugs']}, "
+                f"coverage={result['coverage_pct']:.1f}%"
+            )
+
+    return results
 
 
 # =====================================================================

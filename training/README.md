@@ -4,10 +4,63 @@ Everything related to training an AI agent to test APIs using GRPO (Group Relati
 
 ---
 
+## Setup
+
+```bash
+cd api_testing_env
+
+# Option 1: Automated setup (creates venv, installs everything)
+bash setup.sh
+
+# Option 2: Manual setup
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Optional: login to HuggingFace Hub (for model push)
+huggingface-cli login
+
+# Optional: login to Weights & Biases (for logging)
+wandb login
+```
+
+### Environment Variables
+
+Create a `.env` file in `api_testing_env/` (or export in your shell):
+
+```bash
+# .env
+
+# HuggingFace Hub — required for --push-to-hub
+# Get your token at: https://huggingface.co/settings/tokens
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Weights & Biases — required for --use-wandb
+# Get your key at: https://wandb.ai/authorize
+WANDB_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Optional: set W&B defaults
+WANDB_PROJECT=api-testing-grpo
+WANDB_ENTITY=your-team-name
+```
+
+**Three ways to provide these keys:**
+
+| Method | Command |
+|--------|---------|
+| `.env` file | Create `.env` as shown above, then `source .env` before training |
+| CLI login | `huggingface-cli login` and `wandb login` (stores keys in ~/.cache) |
+| Inline export | `export HF_TOKEN=hf_xxx && export WANDB_API_KEY=xxx` |
+
+> **Important:** Never commit `.env` to git. It's already in `.gitignore`.
+
+---
+
 ## Quick Start
 
 ```bash
 cd api_testing_env
+source .venv/bin/activate
 
 # 1. See what training prompts look like (no GPU needed)
 SHOW_PROMPTS=1 python -m training.grpo
@@ -16,11 +69,28 @@ SHOW_PROMPTS=1 python -m training.grpo
 python -m training.grpo --test-mode
 
 # 3. Real training (GPU required)
-pip install trl transformers peft torch datasets
-python -m training.grpo --model-id Qwen/Qwen3-1.7B --num-episodes 50
+python -m training.grpo --model-id Qwen/Qwen3-1.7B --num-episodes 100
 
-# 4. Run baseline agents
+# 4. With HuggingFace Hub push
+python -m training.grpo \
+  --push-to-hub --hf-repo-id your-username/api-tester-grpo
+
+# 5. With Weights & Biases logging
+python -m training.grpo \
+  --use-wandb --wandb-project api-testing-grpo
+
+# 6. Full pipeline: training + HF push + W&B
+python -m training.grpo \
+  --model-id Qwen/Qwen3-1.7B \
+  --num-episodes 100 \
+  --push-to-hub --hf-repo-id your-username/api-tester-grpo \
+  --use-wandb --wandb-project api-testing-grpo
+
+# 7. Run baseline agents only (no GPU needed)
 python -m training.evaluate --task all --agent all --url http://localhost:8000
+
+# 8. Resume from checkpoint
+python -m training.grpo --model-id ./checkpoints/step_50
 ```
 
 ---
@@ -64,6 +134,36 @@ The bugs (13 planted flaws) are structural — same code flaws every episode —
 
 ---
 
+## Training Pipeline
+
+The full training pipeline runs these steps automatically:
+
+```
+1. Run baseline agents (random, sequential, smart) across all tasks
+        ↓
+2. Load base model (Qwen 1.7B)
+        ↓
+3. Evaluate base model before training (establishes LLM baseline)
+        ↓
+4. GRPO training with LoRA
+        ↓
+5. Save model locally to --output-dir
+        ↓
+6. Push to HuggingFace Hub (if --push-to-hub)
+        ↓
+7. Evaluate trained model after GRPO
+        ↓
+8. Print comparison table (baselines vs base vs trained)
+        ↓
+9. Save metrics (JSON + markdown) to output-dir/metrics/
+        ↓
+10. Save comparison plots (PNG) to output-dir/metrics/plots/
+        ↓
+11. Finalize W&B run (if --use-wandb)
+```
+
+---
+
 ## File Guide
 
 | File | Purpose | When to modify |
@@ -72,7 +172,7 @@ The bugs (13 planted flaws) are structural — same code flaws every episode —
 | `rewards.py` | `format_reward_fn()`, `environment_reward_fn()` | Tune reward scaling or add new reward signals |
 | `agents.py` | `RandomAgent`, `SequentialAgent`, `SmartAgent` | Add new baseline strategies |
 | `grpo.py` | `build_training_prompts()`, `train_grpo()` | Change training hyperparameters or model |
-| `evaluate.py` | `run_rollout()`, remote baseline runner | Change evaluation logic |
+| `evaluate.py` | `run_rollout()`, `run_baseline_local()`, remote runner | Change evaluation logic |
 
 ### prompts.py
 
@@ -115,17 +215,30 @@ The main training script.
 
 **`build_training_prompts(num_episodes)`** — Creates N prompts by resetting the environment with seeds 0..N. Each prompt is a chat message with system prompt + initial observation.
 
+**`run_baseline_evaluation(seed)`** — Runs all three baseline agents across all tasks before training starts.
+
 **`train_grpo(args)`** — Full GRPO loop:
-1. Load model + tokenizer (Qwen 1.7B default)
-2. Apply LoRA (r=16, alpha=32, targets q_proj + v_proj)
-3. Generate prompts from environment
-4. Create per-prompt environment instances for reward eval
-5. Train with TRL's GRPOTrainer
-6. Save model + run evaluation
+1. Run baseline agents for comparison
+2. Load model + tokenizer (Qwen 1.7B default)
+3. Evaluate base model before training
+4. Apply LoRA (r=16, alpha=32, targets q_proj + v_proj)
+5. Generate prompts from environment
+6. Create per-prompt environment instances for reward eval
+7. Train with TRL's GRPOTrainer
+8. Save model locally + push to HF Hub
+9. Evaluate trained model + print comparison
+10. Save metrics (JSON, markdown) and plots (PNG)
+11. Finalize W&B run
+
+**`save_metrics()`** — Saves `results.json` and `results.md` to `output-dir/metrics/`.
+
+**`save_plots()`** — Generates three comparison bar charts (reward, bugs, coverage) saved as PNGs.
 
 ### evaluate.py
 
 **`run_rollout(model, tokenizer, task_id, seed)`** — Runs one full episode with a HuggingFace model. Multi-turn: LLM generates action → env steps → LLM sees result → repeats.
+
+**`run_baseline_local(agent_name, task_id, seed)`** — Runs baseline agents against the local environment (no server needed). Used by `grpo.py` to establish baselines before training.
 
 **`run_episode(url, task_id, agent_cls)`** — Runs a baseline agent against a remote server via WebSocket.
 
@@ -143,6 +256,12 @@ The main training script.
 | `--learning-rate` | 2e-5 | AdamW learning rate |
 | `--batch-size` | 1 | Per-device batch size |
 | `--output-dir` | `./checkpoints/grpo_api_tester` | Where to save model |
+| `--push-to-hub` | off | Push trained model to HuggingFace Hub |
+| `--hf-repo-id` | none | HF Hub repo (e.g., `user/api-tester-grpo`) |
+| `--use-wandb` | off | Enable Weights & Biases logging |
+| `--wandb-project` | `api-testing-grpo` | W&B project name |
+| `--wandb-run-name` | auto | W&B run name |
+| `--test-mode` | off | Quick 3-episode, 2-gen, 5-step test |
 
 ### Hardware Requirements
 
@@ -152,6 +271,43 @@ The main training script.
 | Colab Pro | A100 (40GB) | ~30 min | Qwen 4B + LoRA |
 | Local | Any 8GB+ | ~1-2 hours | Qwen 1.7B + 4-bit LoRA |
 | CPU only | None | `--test-mode` only | Verifies pipeline works |
+
+---
+
+## Output Structure
+
+After training, your output directory will look like:
+
+```
+checkpoints/grpo_api_tester/
+├── adapter_config.json          # LoRA adapter config
+├── adapter_model.safetensors    # Trained LoRA weights
+├── tokenizer.json               # Tokenizer files
+├── tokenizer_config.json
+├── special_tokens_map.json
+└── metrics/
+    ├── results.json             # Full results (baselines + base + trained)
+    ├── results.md               # Markdown comparison table
+    └── plots/
+        ├── reward_comparison.png   # Bar chart: reward across all agents
+        ├── bugs_comparison.png     # Bar chart: bugs found
+        └── coverage_comparison.png # Bar chart: API coverage %
+```
+
+---
+
+## Weights & Biases Integration
+
+When `--use-wandb` is enabled, the following is logged:
+
+| Metric | Description |
+|--------|-------------|
+| `baseline/{agent}/{task}/reward` | Baseline agent scores |
+| `base_model/{task}/reward` | Pre-training model scores |
+| `trained_model/{task}/reward` | Post-training model scores |
+| `delta/{task}/reward` | Improvement over base model |
+| `plots/*` | Comparison charts as W&B images |
+| TRL defaults | Loss, learning rate, reward mean/std |
 
 ---
 
