@@ -20,3 +20,12 @@ build/
 
 # Data
 *.log
+
+# Training artifacts
+checkpoints/
+wandb/
+runs/
+
+# Temporary files
+output.txt
+=*

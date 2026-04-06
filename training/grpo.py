@@ -48,6 +48,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# --- MONKEY PATCH FOR LLM-BLENDER ---
+# llm-blender requires TRANSFORMERS_CACHE which was removed in transformers 4.42+
+try:
+    import transformers.utils.hub
+    if not hasattr(transformers.utils.hub, "TRANSFORMERS_CACHE"):
+        transformers.utils.hub.TRANSFORMERS_CACHE = os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface/hub"))
+except ImportError:
+    pass
+# ------------------------------------
+
 from server.environment import APITestEnvironment
 from .prompts import SYSTEM_PROMPT, format_observation
 from .rewards import format_reward_fn, environment_reward_fn
@@ -337,6 +347,18 @@ def train_grpo(args):
         from peft import LoraConfig
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from trl import GRPOConfig, GRPOTrainer
+        
+        # --- MONKEY PATCH FOR TRL GRPOTrainer ---
+        # trl 0.15 lacks `dataset` argument in `_get_train_sampler` required by transformers 4.57+
+        import inspect
+        if hasattr(GRPOTrainer, "_get_train_sampler"):
+            sig = inspect.signature(GRPOTrainer._get_train_sampler)
+            if "dataset" not in sig.parameters:
+                _old_sampler = GRPOTrainer._get_train_sampler
+                def _new_sampler(self, dataset=None, **kwargs):
+                    return _old_sampler(self)
+                GRPOTrainer._get_train_sampler = _new_sampler
+        # ----------------------------------------
     except ImportError as e:
         logger.error(
             f"Missing dependency: {e}\n"
@@ -502,11 +524,11 @@ def train_grpo(args):
 
     trainer = GRPOTrainer(
         model=model,
-        config=config,
+        args=config,
         reward_funcs=[combined_reward_fn],
         train_dataset=dataset,
         peft_config=lora_config,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
     )
 
     logger.info("Starting GRPO training...")
@@ -649,7 +671,7 @@ def main():
     parser.add_argument("--max-completion-length", type=int, default=256)
     parser.add_argument("--max-steps", type=int, default=200, help="Max training steps")
     parser.add_argument("--learning-rate", type=float, default=2e-5)
-    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--test-mode", action="store_true", help="Quick test with tiny config")
 
     # HuggingFace Hub
@@ -675,6 +697,7 @@ def main():
         logger.info("=== TEST MODE — quick sanity check ===")
         args.num_episodes = 3
         args.num_generations = 2
+        args.batch_size = 2
         args.max_steps = 5
         args.max_completion_length = 128
 
