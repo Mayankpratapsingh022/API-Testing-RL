@@ -441,20 +441,29 @@ def train_grpo(args):
     print("  Tokenizer loaded.", flush=True)
 
     import torch
+
+    # --- Force GPU detection ---
     if torch.cuda.is_available():
         device_map = "auto"
         dtype = torch.bfloat16
         gpu_name = torch.cuda.get_device_name(0)
         gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
         print(f"  GPU: {gpu_name} ({gpu_mem:.1f} GB)", flush=True)
+        print(f"  CUDA version: {torch.version.cuda}", flush=True)
     elif torch.backends.mps.is_available():
         device_map = "auto"
         dtype = torch.float16
         print("  Device: Apple MPS", flush=True)
     else:
+        # Still try to use GPU — sometimes torch.cuda.is_available() is False
+        # because of driver issues but CUDA can still work
         device_map = None
         dtype = torch.float32
-        print("  WARNING: No GPU — running on CPU (very slow)", flush=True)
+        print("  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", flush=True)
+        print("  !! WARNING: No GPU detected — running on CPU !!", flush=True)
+        print("  !! Training will be EXTREMELY slow.           !!", flush=True)
+        print("  !! Check: python -c 'import torch; print(torch.cuda.is_available())'", flush=True)
+        print("  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", flush=True)
 
     print("  Downloading model weights...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(
@@ -463,8 +472,16 @@ def train_grpo(args):
         torch_dtype=dtype,
         device_map=device_map,
     )
+
+    # Verify model is actually on GPU
+    actual_device = next(model.parameters()).device
     param_count = sum(p.numel() for p in model.parameters()) / 1e6
-    print(f"  Model loaded: {param_count:.0f}M parameters", flush=True)
+    print(f"  Model loaded: {param_count:.0f}M parameters on {actual_device}", flush=True)
+
+    if torch.cuda.is_available() and actual_device.type != "cuda":
+        print("  Model not on GPU — forcing move to CUDA...", flush=True)
+        model = model.to("cuda")
+        print(f"  Moved to: {next(model.parameters()).device}", flush=True)
 
     # --- Step 3: Evaluate base model BEFORE training ---
     _step(3, f"Evaluating BASE model (before GRPO, max {args.eval_max_steps} steps/task)")

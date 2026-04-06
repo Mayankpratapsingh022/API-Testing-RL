@@ -46,11 +46,20 @@ def run_rollout(
     import torch
     import time as _time
 
+    # Force GPU if available
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        # Move model to GPU if it's on CPU
+        if next(model.parameters()).device.type == "cpu":
+            logger.info("  Moving model to GPU...")
+            model = model.to(device)
+    else:
+        device = next(model.parameters()).device
+
     env = APITestEnvironment()
     obs = env.reset(seed=seed, task_id=task_id)
     actual_max = max_steps or obs.max_steps
-    device_name = str(model.device)
-    logger.info(f"  Rollout: {task_id} | max_steps={actual_max} | device={device_name}")
+    logger.info(f"  Rollout: {task_id} | max_steps={actual_max} | device={device}")
 
     # --- Try plan mode first (matches training) ---
     plan_prompt = format_plan_prompt(obs)
@@ -67,7 +76,7 @@ def run_rollout(
     prompt_text = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True, **chat_kwargs,
     )
-    inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+    inputs = tokenizer(prompt_text, return_tensors="pt").to(device)
 
     gen_start = _time.time()
     print(f"  Generating test plan...", end="", flush=True)
