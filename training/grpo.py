@@ -484,10 +484,18 @@ def train_grpo(args):
     logger.info(f"Generating {args.num_episodes} training episodes...")
     raw_prompts = build_training_prompts(num_episodes=args.num_episodes)
 
+    # Qwen3 thinking mode: let the model reason before outputting JSON
+    # Requires higher max_completion_length (~2048) to fit <think>...</think> + JSON
+    chat_template_kwargs = {}
+    if "qwen3" in args.model_id.lower():
+        chat_template_kwargs["enable_thinking"] = True
+        logger.info("Qwen3 detected — thinking mode ENABLED (model will reason before acting)")
+
     formatted_prompts = []
     for p in raw_prompts:
         text = tokenizer.apply_chat_template(
-            p["prompt"], tokenize=False, add_generation_prompt=True
+            p["prompt"], tokenize=False, add_generation_prompt=True,
+            **chat_template_kwargs,
         )
         formatted_prompts.append({"prompt": text, "task_id": p["task_id"], "seed": p["seed"]})
 
@@ -668,7 +676,7 @@ def main():
     parser.add_argument("--output-dir", default="./checkpoints/grpo_api_tester")
     parser.add_argument("--num-episodes", type=int, default=50, help="Number of training episodes")
     parser.add_argument("--num-generations", type=int, default=4, help="GRPO parallel rollouts per prompt")
-    parser.add_argument("--max-completion-length", type=int, default=256)
+    parser.add_argument("--max-completion-length", type=int, default=2048)
     parser.add_argument("--max-steps", type=int, default=200, help="Max training steps")
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -696,10 +704,10 @@ def main():
     if args.test_mode:
         logger.info("=== TEST MODE — quick sanity check ===")
         args.num_episodes = 3
-        args.num_generations = 2
+        args.num_generations = 4
         args.batch_size = 2
-        args.max_steps = 5
-        args.max_completion_length = 128
+        args.max_steps = 10
+        args.max_completion_length = 2048
 
     if os.environ.get("SHOW_PROMPTS"):
         prompts = build_training_prompts(num_episodes=3)

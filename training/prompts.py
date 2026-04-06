@@ -25,6 +25,8 @@ You will receive:
 
 Your job: find as many bugs as possible by sending HTTP requests.
 
+Think step by step about what to test next, then output your action as JSON.
+
 RESPOND WITH EXACTLY ONE JSON ACTION per turn:
 ```json
 {
@@ -98,8 +100,13 @@ def format_observation(obs) -> str:
 def parse_action(text: str) -> APITestAction | None:
     """Parse the LLM's text output into an APITestAction.
 
-    Handles common LLM formatting: raw JSON, code blocks, extra text around JSON.
+    Handles common LLM formatting: raw JSON, code blocks, extra text around JSON,
+    and Qwen3 thinking blocks (<think>...</think>).
     """
+    # Strip Qwen3 thinking blocks — JSON is after </think>
+    if "</think>" in text:
+        text = text.split("</think>", 1)[-1]
+
     # Try to find JSON with "method" key
     json_match = re.search(r'\{[^{}]*"method"[^{}]*\}', text, re.DOTALL)
     if not json_match:
