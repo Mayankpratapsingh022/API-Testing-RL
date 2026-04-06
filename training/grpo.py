@@ -45,8 +45,12 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# --- Suppress noisy HTTP/download logs ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+for _noisy in ["httpx", "httpcore", "urllib3", "huggingface_hub", "filelock",
+               "transformers.configuration_utils", "transformers.modeling_utils"]:
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 # --- MONKEY PATCH FOR LLM-BLENDER ---
 # llm-blender requires TRANSFORMERS_CACHE which was removed in transformers 4.42+
@@ -404,7 +408,18 @@ def train_grpo(args):
         "test_mode": args.test_mode,
     }
 
+    # ================================================================
+    #  PIPELINE OVERVIEW
+    # ================================================================
+    total_pipeline_steps = 11
+    def _step(n, msg):
+        bar = "█" * n + "░" * (total_pipeline_steps - n)
+        print(f"\n{'='*70}")
+        print(f"  [{bar}] Step {n}/{total_pipeline_steps}: {msg}")
+        print(f"{'='*70}\n")
+
     # --- Step 1: Run baseline agent evaluation ---
+    _step(1, "Running baseline agents (random, sequential, smart)")
     baseline_results = run_baseline_evaluation(seed=9999)
 
     if args.use_wandb and wandb_run:
@@ -418,38 +433,43 @@ def train_grpo(args):
                 })
 
     # --- Step 2: Load model and tokenizer ---
-    logger.info(f"Loading model: {args.model_id}")
+    _step(2, f"Loading model: {args.model_id}")
+    print("  Downloading tokenizer...", flush=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model_id, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    print("  Tokenizer loaded.", flush=True)
 
     import torch
     if torch.cuda.is_available():
         device_map = "auto"
         dtype = torch.bfloat16
-        logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+        print(f"  GPU: {gpu_name} ({gpu_mem:.1f} GB)", flush=True)
     elif torch.backends.mps.is_available():
         device_map = "auto"
         dtype = torch.float16
-        logger.info("Using Apple MPS")
+        print("  Device: Apple MPS", flush=True)
     else:
         device_map = None
         dtype = torch.float32
-        logger.warning("No GPU found — running on CPU (will be very slow)")
+        print("  WARNING: No GPU — running on CPU (very slow)", flush=True)
 
+    print("  Downloading model weights...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
         trust_remote_code=True,
         torch_dtype=dtype,
         device_map=device_map,
     )
+    param_count = sum(p.numel() for p in model.parameters()) / 1e6
+    print(f"  Model loaded: {param_count:.0f}M parameters", flush=True)
 
     # --- Step 3: Evaluate base model BEFORE training ---
+    _step(3, f"Evaluating BASE model (before GRPO, max {args.eval_max_steps} steps/task)")
     base_results = {}
     if not args.skip_eval:
-        logger.info("=" * 60)
-        logger.info(f"Evaluating BASE model (before GRPO, max {args.eval_max_steps} steps/task)...")
-        logger.info("=" * 60)
         for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
             result = run_rollout(model, tokenizer, task_id=task_id, seed=9999, max_steps=args.eval_max_steps)
             base_results[task_id] = result
@@ -471,6 +491,7 @@ def train_grpo(args):
             base_results[task_id] = {"total_reward": 0, "bugs_found": 0, "total_bugs": 0, "coverage_pct": 0}
 
     # --- Step 4: LoRA config ---
+    _step(4, "Configuring LoRA adapters")
     lora_config = LoraConfig(
         r=16,
         lora_alpha=32,
@@ -478,10 +499,12 @@ def train_grpo(args):
         target_modules=["q_proj", "v_proj"],
         task_type="CAUSAL_LM",
     )
+    print(f"  LoRA: r=16, alpha=32, targets=q_proj+v_proj", flush=True)
 
     # --- Step 5: Generate training prompts ---
-    logger.info(f"Generating {args.num_episodes} training episodes...")
+    _step(5, f"Generating {args.num_episodes} training episodes")
     raw_prompts = build_training_prompts(num_episodes=args.num_episodes)
+    print(f"  {len(raw_prompts)} prompts across 3 tasks (each with unique seed)", flush=True)
 
     # Qwen3 thinking mode: let the model reason before outputting JSON
     # Requires higher max_completion_length (~2048) to fit <think>...</think> + JSON
@@ -512,6 +535,7 @@ def train_grpo(args):
         return [f + p + d for f, p, d in zip(fmt, plan, div)]
 
     # --- Step 6: GRPO training ---
+    _step(6, f"GRPO training ({args.max_steps} steps, {args.num_generations} generations/prompt)")
     config = GRPOConfig(
         output_dir=args.output_dir,
         num_generations=args.num_generations,
@@ -536,18 +560,24 @@ def train_grpo(args):
         processing_class=tokenizer,
     )
 
-    logger.info("Starting GRPO training...")
+    print(f"  Config: lr={args.learning_rate}, batch={args.batch_size}, "
+          f"max_completion={args.max_completion_length}, temp=0.8", flush=True)
+    print(f"  Rewards: format_reward + plan_reward + diversity_reward", flush=True)
+    print(f"  Training begins... (progress bar below)\n", flush=True)
+
     train_start = time.time()
     trainer.train()
     training_time = time.time() - train_start
-    logger.info(f"Training completed in {training_time / 60:.1f} minutes")
+    print(f"\n  Training completed in {training_time / 60:.1f} minutes", flush=True)
 
     # --- Step 7: Save model locally ---
+    _step(7, f"Saving model to {args.output_dir}")
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
-    logger.info(f"Model saved to {args.output_dir}")
+    print(f"  Model + tokenizer saved.", flush=True)
 
     # --- Step 8: Push to HuggingFace Hub ---
+    _step(8, "Pushing to HuggingFace Hub" if args.push_to_hub else "HF Hub push (skipped — use --push-to-hub)")
     if args.push_to_hub:
         hf_repo = args.hf_repo_id
         if not hf_repo:
@@ -563,11 +593,9 @@ def train_grpo(args):
                 logger.info("Make sure you're logged in: huggingface-cli login")
 
     # --- Step 9: Evaluate AFTER training ---
+    _step(9, f"Evaluating TRAINED model (max {args.eval_max_steps} steps/task)")
     trained_results = {}
     if not args.skip_eval:
-        logger.info("=" * 60)
-        logger.info(f"Evaluating TRAINED model (after GRPO, max {args.eval_max_steps} steps/task)...")
-        logger.info("=" * 60)
         for task_id in ["basic_validation", "edge_cases", "security_workflows"]:
             result = run_rollout(model, tokenizer, task_id=task_id, seed=9999, max_steps=args.eval_max_steps)
             trained_results[task_id] = result
@@ -596,7 +624,8 @@ def train_grpo(args):
             trained_results[task_id] = {"total_reward": 0, "bugs_found": 0, "total_bugs": 0, "coverage_pct": 0}
 
     # --- Step 10: Print final comparison table ---
-    print("\n" + "=" * 95)
+    _step(10, "Results comparison table")
+    print("=" * 95)
     print("FINAL COMPARISON: All Agents & Models")
     print("=" * 95)
     print(f"{'Agent/Model':<18} {'Task':<25} {'Reward':<10} {'Bugs':<12} {'Coverage':<10}")
@@ -637,6 +666,7 @@ def train_grpo(args):
     print("=" * 95)
 
     # --- Step 11: Save metrics & plots ---
+    _step(11, "Saving metrics, plots, and finalizing")
     save_metrics(
         output_dir=args.output_dir,
         baseline_results=baseline_results,
@@ -662,7 +692,19 @@ def train_grpo(args):
                 if fname.endswith(".png"):
                     wandb.log({f"plots/{fname.replace('.png', '')}": wandb.Image(os.path.join(plots_dir, fname))})
         wandb.finish()
-        logger.info("W&B run finalized")
+
+    # ================================================================
+    print(f"\n{'='*70}")
+    print(f"  PIPELINE COMPLETE")
+    print(f"  Training time: {training_time / 60:.1f} minutes")
+    print(f"  Model saved to: {args.output_dir}")
+    print(f"  Metrics: {args.output_dir}/metrics/")
+    print(f"  Plots: {args.output_dir}/metrics/plots/")
+    if args.use_wandb:
+        print(f"  W&B: https://wandb.ai/{args.wandb_project}")
+    if args.push_to_hub and args.hf_repo_id:
+        print(f"  HF Hub: https://huggingface.co/{args.hf_repo_id}")
+    print(f"{'='*70}\n")
 
 
 def main():
