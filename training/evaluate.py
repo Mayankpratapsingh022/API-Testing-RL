@@ -45,6 +45,7 @@ def run_rollout(
         dict with episode results (bugs, reward, coverage, etc.)
     """
     import torch
+    import time as _time
 
     env = APITestEnvironment()
     obs = env.reset(seed=seed, task_id=task_id)
@@ -57,8 +58,13 @@ def run_rollout(
     total_reward = 0.0
     steps = 0
     actual_max = max_steps or obs.max_steps
+    device_name = str(model.device)
+    logger.info(f"  Rollout: {task_id} | max_steps={actual_max} | device={device_name}")
 
     while not obs.done and steps < actual_max:
+        step_start = _time.time()
+        print(f"\r  Generating step {steps + 1}/{actual_max}...", end="", flush=True)
+
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
@@ -83,11 +89,12 @@ def run_rollout(
         messages.append({"role": "assistant", "content": completion})
         messages.append({"role": "user", "content": format_observation(obs)})
 
+        elapsed = _time.time() - step_start
         method_str = action.method.value if hasattr(action.method, "value") else str(action.method)
-        logger.info(
-            f"  Step {steps}: {method_str} {action.endpoint} -> "
-            f"{obs.status_code} | reward={obs.reward:.3f} | bugs={obs.bugs_found_so_far}"
-        )
+        print(f"\r  Step {steps}/{actual_max}: {method_str} {action.endpoint} -> "
+              f"{obs.status_code} | reward={obs.reward:.3f} | bugs={obs.bugs_found_so_far} "
+              f"({elapsed:.1f}s)          ")
+    print()  # newline after progress
 
     state = env.state
     return {
