@@ -217,40 +217,132 @@ def parse_action(text: str) -> APITestAction | None:
 
 def parse_test_plan(text: str) -> list[APITestAction]:
     """Parse a JSON array of actions from LLM output.
-    Used in GRPO training where the model outputs a full test plan.
+
+    Handles all of these formats:
+        1. Raw JSON array: [{"method": ...}, ...]
+        2. Wrapped object: {"actions": [...]} or {"plan": [...]} or {"test_plan": [...]}
+        3. Markdown code block: ```json [...] ```
+        4. Trailing commas, missing commas (best-effort repair)
+        5. Brace-balanced extraction of individual action objects
     """
+    if not text:
+        return []
+
     # Strip Qwen3 thinking blocks
     if "</think>" in text:
         text = text.split("</think>", 1)[-1]
 
-    # Try to find a JSON array
-    # First: look for ```json [...] ```
-    block_match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', text, re.DOTALL)
-    if block_match:
-        json_str = block_match.group(1)
-    else:
-        # Find the outermost [ ... ] that contains "method"
-        arr_match = re.search(r'\[.*"method".*\]', text, re.DOTALL)
-        if arr_match:
-            json_str = arr_match.group(0)
-        else:
-            # Fallback: try to find individual action objects and wrap them
-            individual = re.findall(r'\{[^{}]*"method"[^{}]*\}', text, re.DOTALL)
-            if individual:
-                json_str = "[" + ",".join(individual) + "]"
-            else:
-                return []
+    # Strip markdown code fences
+    text = re.sub(r'```(?:json)?\s*', '', text)
+    text = text.replace('```', '')
 
+    data = None
+
+    # Strategy 1: Try to parse the entire text as JSON
     try:
-        data = json.loads(json_str)
+        data = json.loads(text.strip())
     except json.JSONDecodeError:
-        # Try fixing common issues: trailing commas
-        cleaned = re.sub(r',\s*\]', ']', json_str)
-        cleaned = re.sub(r',\s*\}', '}', cleaned)
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError:
-            return []
+        pass
+
+    # Strategy 2: Find a top-level JSON ARRAY via brace matching
+    if data is None:
+        start = text.find('[')
+        if start >= 0:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '[':
+                    depth += 1
+                elif text[i] == ']':
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[start:i+1]
+                        try:
+                            data = json.loads(candidate)
+                            break
+                        except json.JSONDecodeError:
+                            cleaned = re.sub(r',(\s*[\]}])', r'\1', candidate)
+                            try:
+                                data = json.loads(cleaned)
+                                break
+                            except json.JSONDecodeError:
+                                pass
+
+    # Strategy 2b: Find a top-level JSON OBJECT (might be {"actions": [...]})
+    if data is None:
+        start = text.find('{')
+        if start >= 0:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[start:i+1]
+                        try:
+                            parsed = json.loads(candidate)
+                            # Only accept if it's a wrapper containing actions
+                            if isinstance(parsed, dict) and any(
+                                k in parsed for k in ("actions", "plan", "test_plan", "steps", "requests")
+                            ):
+                                data = parsed
+                                break
+                        except json.JSONDecodeError:
+                            cleaned = re.sub(r',(\s*[\]}])', r'\1', candidate)
+                            try:
+                                parsed = json.loads(cleaned)
+                                if isinstance(parsed, dict) and any(
+                                    k in parsed for k in ("actions", "plan", "test_plan", "steps", "requests")
+                                ):
+                                    data = parsed
+                                    break
+                            except json.JSONDecodeError:
+                                pass
+
+    # Strategy 3: Extract individual {"method": ...} objects with brace balancing
+    if data is None:
+        objects = []
+        i = 0
+        while i < len(text):
+            if text[i] == '{':
+                depth = 1
+                start = i
+                i += 1
+                while i < len(text) and depth > 0:
+                    if text[i] == '{':
+                        depth += 1
+                    elif text[i] == '}':
+                        depth -= 1
+                    i += 1
+                obj_str = text[start:i]
+                if '"method"' in obj_str:
+                    try:
+                        obj = json.loads(obj_str)
+                        objects.append(obj)
+                    except json.JSONDecodeError:
+                        cleaned = re.sub(r',(\s*[\]}])', r'\1', obj_str)
+                        try:
+                            obj = json.loads(cleaned)
+                            objects.append(obj)
+                        except json.JSONDecodeError:
+                            pass
+            else:
+                i += 1
+        if objects:
+            data = objects
+
+    if data is None:
+        return []
+
+    # Unwrap common container shapes: {"actions": [...]}, {"plan": [...]}, etc.
+    if isinstance(data, dict):
+        for key in ("actions", "plan", "test_plan", "steps", "requests"):
+            if key in data and isinstance(data[key], list):
+                data = data[key]
+                break
+        else:
+            # Single action object
+            data = [data]
 
     if not isinstance(data, list):
         data = [data]

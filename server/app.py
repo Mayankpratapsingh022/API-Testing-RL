@@ -25,6 +25,8 @@ except ImportError:
     from models import APITestAction, APITestObservation
     from server.environment import APITestEnvironment
 
+from fastapi.responses import RedirectResponse
+
 logger = logging.getLogger(__name__)
 
 app = create_app(
@@ -35,13 +37,18 @@ app = create_app(
     max_concurrent_envs=int(os.environ.get("MAX_ENVS", "1")),
 )
 
+# Track whether the Gradio UI is available so root can redirect to it
+_GRADIO_MOUNTED = False
 
-@app.get("/")
-async def root():
+
+@app.get("/info")
+async def info():
+    """JSON info about the environment (replaces the old `/` JSON endpoint)."""
     return {
         "name": "API Testing Environment",
         "description": "An OpenEnv RL environment where an AI agent learns to test REST APIs intelligently",
         "tasks": ["basic_validation", "edge_cases", "security_workflows"],
+        "ui": "/ui",
         "docs": "/docs",
         "schema": "/schema",
     }
@@ -77,9 +84,21 @@ if os.environ.get("ENABLE_WEB_INTERFACE", "true").lower() in ("1", "true", "yes"
 
         _gradio_ui = build_ui()
         app = gr.mount_gradio_app(app, _gradio_ui, path="/ui")
+        _GRADIO_MOUNTED = True
         logger.info("Gradio UI mounted at /ui")
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Skipping Gradio mount ({type(exc).__name__}: {exc})")
+
+
+# ---------------------------------------------------------------------------
+# Root redirect: send visitors to the Gradio UI if mounted, else to JSON info
+# ---------------------------------------------------------------------------
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    """Redirect / to the Gradio UI when available, otherwise to /info JSON."""
+    if _GRADIO_MOUNTED:
+        return RedirectResponse(url="/ui", status_code=307)
+    return RedirectResponse(url="/info", status_code=307)
 
 
 def main(host: str = None, port: int = None):
