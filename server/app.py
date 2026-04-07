@@ -62,9 +62,41 @@ async def list_tasks():
     }
 
 
-def main(host: str = "0.0.0.0", port: int = None):
-    """Entry point for `uv run server`."""
+# ---------------------------------------------------------------------------
+# Mount Gradio UI at /ui (only if gradio is installed and ENABLE_WEB_INTERFACE)
+# ---------------------------------------------------------------------------
+if os.environ.get("ENABLE_WEB_INTERFACE", "true").lower() in ("1", "true", "yes"):
+    try:
+        import gradio as gr  # type: ignore
+        # Make the repo root importable so gradio_app's `from models import ...` works
+        import sys
+        _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if _REPO_ROOT not in sys.path:
+            sys.path.insert(0, _REPO_ROOT)
+        from gradio_app import build_ui  # type: ignore
+
+        _gradio_ui = build_ui()
+        app = gr.mount_gradio_app(app, _gradio_ui, path="/ui")
+        logger.info("Gradio UI mounted at /ui")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Skipping Gradio mount ({type(exc).__name__}: {exc})")
+
+
+def main(host: str = None, port: int = None):
+    """Entry point for `uv run server` and `python -m server.app`.
+
+    When invoked from the CLI without args, parses argv for --host / --port.
+    """
     import uvicorn
+
+    if host is None or port is None:
+        import argparse
+        parser = argparse.ArgumentParser(description="API Testing Environment server")
+        parser.add_argument("--host", default="0.0.0.0")
+        parser.add_argument("--port", type=int, default=None)
+        args, _ = parser.parse_known_args()
+        host = host or args.host
+        port = port or args.port
 
     if port is None:
         port = int(os.environ.get("PORT", "8000"))
@@ -81,9 +113,4 @@ def main(host: str = "0.0.0.0", port: int = None):
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="API Testing Environment server")
-    parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=None)
-    args = parser.parse_args()
-    main(host=args.host, port=args.port)
+    main()
