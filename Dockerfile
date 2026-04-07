@@ -54,7 +54,7 @@ ENV PYTHONPATH="/app/env:$PYTHONPATH"
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Enable web interface
+# Enable web interface (default OpenEnv UI at /web; custom Gradio at /ui)
 ENV ENABLE_WEB_INTERFACE=true
 
 # Run the server
