@@ -447,7 +447,7 @@ def train_grpo(args):
         device_map = "auto"
         dtype = torch.bfloat16
         gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem = torch.cuda.get_device_properties(0).total_mem / 1e9
+        gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
         print(f"  GPU: {gpu_name} ({gpu_mem:.1f} GB)", flush=True)
         print(f"  CUDA version: {torch.version.cuda}", flush=True)
     elif torch.backends.mps.is_available():
@@ -732,7 +732,8 @@ def main():
     parser.add_argument("--output-dir", default="./checkpoints/grpo_api_tester")
     parser.add_argument("--num-episodes", type=int, default=50, help="Number of training episodes")
     parser.add_argument("--num-generations", type=int, default=4, help="GRPO parallel rollouts per prompt")
-    parser.add_argument("--max-completion-length", type=int, default=2048)
+    parser.add_argument("--max-completion-length", type=int, default=4096,
+                        help="Max tokens per generation. 4096 needed for Qwen3 thinking + JSON plan")
     parser.add_argument("--max-steps", type=int, default=200, help="Max training steps")
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--batch-size", type=int, default=4)

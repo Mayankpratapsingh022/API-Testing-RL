@@ -96,7 +96,7 @@ mps = hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
 if cuda:
     print(f"  CUDA:         {torch.version.cuda}")
     print(f"  GPU:          {torch.cuda.get_device_name(0)}")
-    print(f"  GPU memory:   {torch.cuda.get_device_properties(0).total_mem/1e9:.1f} GB")
+    print(f"  GPU memory:   {torch.cuda.get_device_properties(0).total_memory/1e9:.1f} GB")
 elif mps:
     print(f"  Device:       Apple MPS")
 else:
