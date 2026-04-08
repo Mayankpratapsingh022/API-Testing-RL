@@ -5,7 +5,13 @@ from typing import Dict
 from openenv.core.client_types import StepResult
 from openenv.core import EnvClient
 
-from .models import APITestAction, APITestObservation, APITestState
+# Support both package import (`from api_testing_env.client import ...`)
+# and flat-module import (`from client import ...` from inference.py).
+# `inference.py` injects its own directory into sys.path so the fallback works.
+try:
+    from .models import APITestAction, APITestObservation, APITestState
+except ImportError:  # pragma: no cover - flat-module fallback for inference.py
+    from models import APITestAction, APITestObservation, APITestState  # type: ignore[no-redef,import-not-found]
 
 
 class APITestEnv(
