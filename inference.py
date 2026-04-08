@@ -126,10 +126,19 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 
 def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
+    """Emit the [END] line in the EXACT format expected by the OpenEnv judge.
+
+    Spec format (from problem statement):
+        [END] success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...,rn>
+    Spec example:
+        [END] success=true steps=3 score=1.00 rewards=0.00,0.00,1.00
+
+    All numeric fields use 2-decimal format to match the spec example.
+    """
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.3f} rewards={rewards_str}",
+        f"score={score:.2f} rewards={rewards_str}",
         flush=True,
     )
 

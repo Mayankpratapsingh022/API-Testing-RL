@@ -162,38 +162,62 @@ docker run -p 8000:8000 api-testing-env
 curl -X POST http://localhost:8000/reset -H 'Content-Type: application/json' -d '{}'
 ```
 
-### Inference (`inference.py`)
+### Inference (`inference.py`) — SUBMISSION ENTRY POINT
 
-The submission entry point. Uses an OpenAI-compatible LLM to play all 3 tasks
-and prints the mandatory `[START] / [STEP] / [END]` log lines that the
-OpenEnv judging pipeline parses.
+The script judges run to evaluate this environment. It uses an OpenAI-compatible
+client, makes **one LLM call per task** in plan mode, executes the returned JSON
+action plan against the env, and emits the mandatory `[START] / [STEP] / [END]`
+log lines.
+
+#### Required Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `API_BASE_URL` | OpenAI-compatible LLM endpoint (default: HuggingFace router) |
+| `MODEL_NAME` | Model identifier to use for inference |
+| `HF_TOKEN` | HuggingFace token (used as API key) |
+
+#### Run Command (the format judges use)
 
 ```bash
-# 1. Set required env vars (see .env.example)
-export API_BASE_URL=https://router.huggingface.co/v1
-export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
-export HF_TOKEN=hf_xxx
+API_BASE_URL=https://router.huggingface.co/v1 \
+MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct \
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+python inference.py
+```
 
-# 2. Choose how to attach to the environment (pick ONE):
-#    (a) in-process (default, fastest, no Docker)
+#### Optional — Choose How to Attach to the Environment
+
+```bash
+# (a) In-process — default, fastest, no Docker
+API_BASE_URL=https://router.huggingface.co/v1 \
+MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct \
+HF_TOKEN=hf_xxx \
 python inference.py
 
-#    (b) against a built docker image (matches the OpenEnv sample)
-IMAGE_NAME=api-testing-env:latest python inference.py
+# (b) Against a built Docker image
+API_BASE_URL=https://router.huggingface.co/v1 \
+MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct \
+HF_TOKEN=hf_xxx \
+IMAGE_NAME=api-testing-env:latest \
+python inference.py
 
-#    (c) against a running server / deployed HF Space
-ENV_BASE_URL=https://your-username-api-testing-env.hf.space python inference.py
+# (c) Against a deployed HuggingFace Space
+API_BASE_URL=https://router.huggingface.co/v1 \
+MODEL_NAME=meta-llama/Llama-3.3-70B-Instruct \
+HF_TOKEN=hf_xxx \
+ENV_BASE_URL=https://Mayank022-api-testing-env.hf.space \
+python inference.py
 ```
 
-The script makes **one LLM call per task** in plan mode, executes the returned
-JSON action plan against the env, and emits exactly:
+#### Mandatory Output Format (parsed by the OpenEnv judge)
 
 ```
-[START] task=basic_validation env=api_testing_env model=Qwen/Qwen2.5-72B-Instruct
+[START] task=basic_validation env=api_testing_env model=meta-llama/Llama-3.3-70B-Instruct
 [STEP]  step=1 action=GET_/tasks reward=0.33 done=false error=null
 [STEP]  step=2 action=POST_/tasks reward=0.28 done=false error=null
 ...
-[END]   success=true steps=17 score=0.820 rewards=0.33,0.28,...
+[END]   success=true steps=21 score=0.820 rewards=0.33,0.28,...
 ```
 
 Each per-task `score` is normalized to **[0, 1]** as
