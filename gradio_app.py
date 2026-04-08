@@ -16,6 +16,778 @@ from models import APITestAction, APITestObservation, HTTPMethod
 from server.environment import APITestEnvironment, TASKS, API_SPEC
 
 
+# =====================================================================
+# Editorial blog-style documentation rendered below the playground.
+# Uses an inline <style> block so it works without external CSS files,
+# and adapts to both light and dark Gradio themes via CSS variables.
+# Aesthetic: terminal-framed editorial zine — EB Garamond + JetBrains
+# Mono, parchment cream over ink black, amber + forensic-green accents.
+# =====================================================================
+
+BLOG_HTML = r"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fraunces:opsz,wght,SOFT@9..144,200..400,30..100&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+/* ─────────────────────────────────────────────────────────────────
+   ElevenLabs-inspired editorial section.
+   - Light Fraunces (used as Waldenburg-substitute) display
+   - Warm stone surfaces with sub-0.1 shadow stacks
+   - Pill buttons, generous whitespace
+   - Adapts to both light and dark Gradio themes
+   ───────────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────────
+   Theme variables.
+   Strategy: ALWAYS default to LIGHT. Only flip to dark when an
+   explicit `.dark` class is present on the body (Gradio sets this
+   reliably based on ?__theme=dark URL param or system preference).
+   We do NOT use `prefers-color-scheme` here because Gradio already
+   reads it once and forwards the result via the body class — using
+   the media query as well causes double-flipping in light mode when
+   the OS is dark.
+   ───────────────────────────────────────────────────────────────── */
+
+.eleven {
+  /* Default = LIGHT theme (always — overridden by .dark below) */
+  --bg:           #ffffff;
+  --bg-soft:      #f5f5f5;
+  --stone:        rgba(245, 242, 239, 0.85);
+  --stone-solid:  #f5f2ef;
+  --fg:           #000000;
+  --fg-2:         #4e4e4e;
+  --fg-3:         #777169;
+  --hairline:     rgba(0, 0, 0, 0.05);
+  --border:       #e5e5e5;
+  --warm-shadow:  rgba(78, 50, 23, 0.04);
+  --inset-edge:   rgba(0, 0, 0, 0.075);
+  --outline-ring: rgba(0, 0, 0, 0.06);
+  --soft-elev:    rgba(0, 0, 0, 0.04);
+
+  --accent-mint:  #2db97a;
+  --accent-amber: #d97757;
+  --accent-coral: #c4513a;
+  --accent-blue:  #4a6fa5;
+
+  --display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --body:    'Inter', system-ui, sans-serif;
+  --mono:    'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+
+  display: block;
+  width: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--body);
+  margin-top: 48px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* DARK theme — triggered by Gradio's .dark class on body / container.
+   Gradio handles `?__theme=dark` and `prefers-color-scheme: dark` for
+   us by setting this class, so a single rule covers all cases. */
+.dark .eleven,
+body.dark .eleven,
+.gradio-container.dark .eleven,
+html.dark .eleven {
+  --bg:           #0a0a0a;
+  --bg-soft:      #131313;
+  --stone:        rgba(28, 24, 20, 0.9);
+  --stone-solid:  #1c1814;
+  --fg:           #f5f2ef;
+  --fg-2:         #b8b3ad;
+  --fg-3:         #8a847d;
+  --hairline:     rgba(245, 242, 239, 0.06);
+  --border:       rgba(245, 242, 239, 0.10);
+  --warm-shadow:  rgba(0, 0, 0, 0.4);
+  --inset-edge:   rgba(245, 242, 239, 0.08);
+  --outline-ring: rgba(245, 242, 239, 0.08);
+  --soft-elev:    rgba(0, 0, 0, 0.35);
+}
+
+/* ── Section container ── */
+.eleven-section {
+  padding: 96px 64px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.eleven-section.alt {
+  background: var(--bg-soft);
+  max-width: none;
+  padding: 96px 64px;
+}
+.eleven-section.alt > .eleven-section-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .eleven-section,
+  .eleven-section.alt { padding: 64px 24px; }
+}
+
+/* ── Eyebrow label ── */
+.eleven-eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+.eleven-eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-mint);
+  box-shadow: 0 0 12px var(--accent-mint);
+}
+
+/* ── Hero masthead ── */
+.eleven-hero {
+  text-align: center;
+  padding: 120px 24px 64px 24px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+.eleven-hero h1 {
+  font-family: var(--display);
+  font-size: clamp(48px, 7vw, 96px);
+  font-weight: 300;
+  font-variation-settings: "SOFT" 50, "opsz" 144;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  color: var(--fg);
+  margin: 0 0 24px 0;
+}
+.eleven-hero h1 em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--fg);
+  font-variation-settings: "SOFT" 100, "opsz" 144;
+}
+.eleven-hero .eleven-deck {
+  font-family: var(--body);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0.1px;
+  color: var(--fg-2);
+  margin: 0 auto 40px auto;
+  max-width: 640px;
+}
+
+/* ── Pill buttons (hero CTA row) ── */
+.eleven-pills {
+  display: inline-flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.eleven-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: 9999px;
+  text-decoration: none;
+  font-family: var(--body);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.eleven-pill.dark {
+  background: var(--fg);
+  color: var(--bg);
+}
+.eleven-pill.dark:hover {
+  transform: translateY(-1px);
+}
+.eleven-pill.warm {
+  background: var(--stone);
+  color: var(--fg);
+  box-shadow:
+    var(--inset-edge) 0 0 0 0.5px inset,
+    var(--warm-shadow) 0 6px 16px;
+}
+.eleven-pill.warm:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    var(--inset-edge) 0 0 0 0.5px inset,
+    var(--warm-shadow) 0 8px 20px;
+}
+.eleven-pill .arrow {
+  font-family: var(--body);
+  font-weight: 400;
+  font-size: 16px;
+}
+
+/* ── Two-column section: label + content ── */
+.eleven-row {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 80px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .eleven-row { grid-template-columns: 1fr; gap: 24px; }
+}
+
+.eleven-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  position: sticky;
+  top: 32px;
+}
+.eleven-label .num {
+  display: block;
+  font-family: var(--display);
+  font-size: 56px;
+  font-weight: 300;
+  font-variation-settings: "SOFT" 100, "opsz" 144;
+  letter-spacing: -0.04em;
+  color: var(--fg);
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.eleven-content h2 {
+  font-family: var(--display);
+  font-size: clamp(36px, 4.5vw, 56px);
+  font-weight: 300;
+  font-variation-settings: "SOFT" 50, "opsz" 144;
+  line-height: 1.08;
+  letter-spacing: -0.018em;
+  color: var(--fg);
+  margin: 0 0 28px 0;
+}
+.eleven-content h2 em {
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "SOFT" 100, "opsz" 144;
+  color: var(--fg);
+}
+
+.eleven-content p {
+  font-family: var(--body);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.62;
+  letter-spacing: 0.18px;
+  color: var(--fg-2);
+  margin: 0 0 18px 0;
+  max-width: 64ch;
+}
+.eleven-content p strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* Inline tag chip */
+.eleven-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg);
+  color: var(--fg);
+  padding: 2px 10px;
+  border-radius: 9999px;
+  margin: 0 2px;
+  box-shadow:
+    var(--inset-edge) 0 0 0 0.5px inset,
+    var(--soft-elev) 0 1px 2px;
+  vertical-align: 2px;
+}
+
+/* ── Pull quote (subtle, ElevenLabs-style — not loud) ── */
+.eleven-quote {
+  font-family: var(--display);
+  font-size: clamp(28px, 3.5vw, 42px);
+  font-weight: 300;
+  font-variation-settings: "SOFT" 80, "opsz" 144;
+  line-height: 1.2;
+  letter-spacing: -0.012em;
+  color: var(--fg);
+  margin: 32px 0 16px 0;
+  max-width: 28ch;
+}
+.eleven-quote em {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--fg-3);
+  font-variation-settings: "SOFT" 100, "opsz" 144;
+}
+
+/* ── Reward cards (5 elegant cards instead of bar chart) ── */
+.eleven-rewards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 32px 0 24px 0;
+}
+@media (max-width: 700px) {
+  .eleven-rewards { grid-template-columns: 1fr; }
+}
+.eleven-reward {
+  background: var(--bg);
+  border-radius: 16px;
+  padding: 24px 26px;
+  box-shadow:
+    var(--inset-edge) 0 0 0 0.5px inset,
+    var(--outline-ring) 0 0 0 1px,
+    var(--soft-elev) 0 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eleven-reward.featured {
+  grid-column: 1 / -1;
+  background: var(--stone);
+  box-shadow:
+    var(--inset-edge) 0 0 0 0.5px inset,
+    var(--warm-shadow) 0 6px 16px;
+}
+.eleven-reward-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.eleven-reward-name {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 300;
+  font-variation-settings: "SOFT" 80, "opsz" 144;
+  letter-spacing: -0.005em;
+  color: var(--fg);
+}
+.eleven-reward-val {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-mint);
+  white-space: nowrap;
+}
+.eleven-reward-val.neg {
+  color: var(--accent-coral);
+}
+.eleven-reward p {
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: 0.14px;
+  color: var(--fg-2);
+  margin: 0;
+  max-width: none;
+}
+
+.eleven-r-foot {
+  font-family: var(--display);
+  font-size: 20px;
+  font-style: italic;
+  font-weight: 300;
+  font-variation-settings: "SOFT" 100, "opsz" 144;
+  line-height: 1.5;
+  color: var(--fg-2);
+  margin: 32px 0 0 0;
+  max-width: 64ch;
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
+}
+
+/* ── Steps as an editorial table ── */
+.eleven-steps {
+  margin: 40px 0 0 0;
+  border-top: 1px solid var(--border);
+  counter-reset: eleven-step;
+}
+.eleven-step {
+  display: grid;
+  grid-template-columns: 72px minmax(180px, 1.1fr) minmax(0, 2.4fr);
+  column-gap: 32px;
+  row-gap: 8px;
+  align-items: start;
+  padding: 32px 8px;
+  border-bottom: 1px solid var(--border);
+  counter-increment: eleven-step;
+  transition: background 0.18s ease;
+}
+.eleven-step:hover {
+  background: var(--bg-soft);
+}
+@media (max-width: 900px) {
+  .eleven-step {
+    grid-template-columns: 56px 1fr;
+    column-gap: 16px;
+    padding: 24px 4px;
+  }
+  .eleven-step-body { grid-column: 2 / -1; }
+}
+.eleven-step-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+  padding-top: 10px;
+  position: relative;
+}
+.eleven-step-num::before {
+  content: counter(eleven-step, decimal-leading-zero);
+}
+.eleven-step-num::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 2px;
+  background: var(--accent-mint);
+}
+.eleven-step-title {
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 400;
+  font-variation-settings: "SOFT" 80, "opsz" 144;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+  color: var(--fg);
+}
+.eleven-step-body {
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-2);
+}
+.eleven-step-body p {
+  margin: 0;
+}
+.eleven-step-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+.eleven-step-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.dark .eleven-step-chip {
+  background: rgba(245, 242, 239, 0.04);
+}
+.eleven-step-chip.accent {
+  background: rgba(45, 185, 122, 0.10);
+  color: var(--accent-mint);
+  border-color: rgba(45, 185, 122, 0.35);
+}
+
+/* ── Stack tiles (4 cards) ── */
+.eleven-stack {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 32px 0 0 0;
+}
+@media (max-width: 700px) {
+  .eleven-stack { grid-template-columns: 1fr; }
+}
+.eleven-tile {
+  background: var(--bg);
+  border-radius: 20px;
+  padding: 32px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow:
+    var(--inset-edge) 0 0 0 0.5px inset,
+    var(--outline-ring) 0 0 0 1px,
+    var(--soft-elev) 0 4px 12px;
+}
+.eleven-tile-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--fg-3);
+}
+.eleven-tile h3 {
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 300;
+  font-variation-settings: "SOFT" 80, "opsz" 144;
+  letter-spacing: -0.012em;
+  line-height: 1.1;
+  color: var(--fg);
+  margin: 0;
+}
+.eleven-tile p {
+  font-family: var(--body);
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: 0.14px;
+  color: var(--fg-2);
+  margin: 0;
+}
+.eleven-tile p code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--fg);
+  font-weight: 500;
+  box-shadow: var(--inset-edge) 0 0 0 0.5px inset;
+}
+
+/* ── Link list (minimal underlined text) ── */
+.eleven-links {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 32px 0 0 0;
+}
+.eleven-link {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+  word-break: break-all;
+  transition: text-decoration-color 0.18s ease, color 0.18s ease;
+}
+.eleven-link:hover {
+  text-decoration-color: var(--accent-mint);
+  color: var(--accent-mint);
+}
+</style>
+
+<div class="eleven">
+
+  <!-- ─── HERO ─── -->
+  <div class="eleven-hero">
+    <h1>Where agents learn to <em>break APIs.</em></h1>
+    <p class="eleven-deck">An OpenEnv reinforcement learning environment for API security testing. A live REST API with thirteen planted vulnerabilities, a verifiable reward function mapped to the OWASP API Security Top 10, and an episode that ends with a structured bug report.</p>
+  </div>
+
+  <!-- ─── 01 WHAT IS THIS ─── -->
+  <div class="eleven-section">
+    <div class="eleven-row">
+      <div class="eleven-label"><span class="num">01</span>The premise</div>
+      <div class="eleven-content">
+        <h2>What <em>this is.</em></h2>
+        <p>A Gradio playground for an OpenEnv RL environment that trains AI agents to test REST APIs the way a security engineer would. Behind the UI is a Task Management API with <strong>13 deliberately planted bugs</strong> covering 6 categories from the <strong>OWASP API Security Top 10</strong>.</p>
+        <p>The agent connects, sends HTTP requests, earns rewards for finding bugs and covering endpoints, and generates a bug bounty report when the episode ends.</p>
+        <div class="eleven-quote">Real API. Real bugs. Real OWASP categories — <em>verifiable end to end.</em></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 02 WHY BOTHER ─── -->
+  <div class="eleven-section alt">
+    <div class="eleven-section-inner">
+      <div class="eleven-row">
+        <div class="eleven-label"><span class="num">02</span>The gap</div>
+        <div class="eleven-content">
+          <h2>Why <em>bother.</em></h2>
+          <p>Every team ships APIs and every API has bugs. The usual tools <span class="eleven-chip">Postman</span> <span class="eleven-chip">Schemathesis</span> <span class="eleven-chip">OWASP&nbsp;ZAP</span> either need humans writing tests by hand or fall back to brute-force fuzzing.</p>
+          <p>Recent papers — <em>APIRL</em> at AAAI 2025, <em>ARAT-RL</em> at ASE 2023 — show RL beats both. But there hasn't been a standard RL benchmark for it.</p>
+          <div class="eleven-quote">This environment <em>is the benchmark.</em></div>
+          <p>The agent doesn't get a written test plan. It reads the API spec, plans a campaign, runs it, and reports what broke. The reward function is verifiable — no LLM judge, no soft heuristics — and every signal maps to a real OWASP category, so episodes can be scored deterministically.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 03 REWARD ─── -->
+  <div class="eleven-section">
+    <div class="eleven-row">
+      <div class="eleven-label"><span class="num">03</span>How reward works</div>
+      <div class="eleven-content">
+        <h2>Five signals,<br><em>one episode.</em></h2>
+        <p>The reward function is verifiable — no LLM judge, no soft heuristics. Each step accumulates from five components and the task grader caps the episode with a terminal score in <span class="eleven-chip">[0, 1]</span>.</p>
+
+        <div class="eleven-rewards">
+          <div class="eleven-reward featured">
+            <div class="eleven-reward-head">
+              <div class="eleven-reward-name">Bug discovery</div>
+              <div class="eleven-reward-val">+0.10 / +0.15 / +0.25</div>
+            </div>
+            <p>Finding a planted bug, scaled by severity. Easy bugs (status codes, missing fields) are worth 0.10. Medium (validation, auth) gets 0.15. Hard (BOLA, injection, broken auth chains) gets 0.25.</p>
+          </div>
+          <div class="eleven-reward">
+            <div class="eleven-reward-head">
+              <div class="eleven-reward-name">Coverage</div>
+              <div class="eleven-reward-val">+0.20</div>
+            </div>
+            <p>Hitting endpoints, methods, and status codes the agent hasn't tried yet.</p>
+          </div>
+          <div class="eleven-reward">
+            <div class="eleven-reward-head">
+              <div class="eleven-reward-name">Validity</div>
+              <div class="eleven-reward-val">+0.18</div>
+            </div>
+            <p>Well-formed requests, plus chaining IDs from previous responses.</p>
+          </div>
+          <div class="eleven-reward">
+            <div class="eleven-reward-head">
+              <div class="eleven-reward-name">Exploration</div>
+              <div class="eleven-reward-val">+0.05</div>
+            </div>
+            <p>Trying genuinely novel action patterns the agent hasn't tried before.</p>
+          </div>
+          <div class="eleven-reward">
+            <div class="eleven-reward-head">
+              <div class="eleven-reward-name">Penalty</div>
+              <div class="eleven-reward-val neg">−0.08</div>
+            </div>
+            <p>Repeating the same exact request twice — anti-spam, anti-loop.</p>
+          </div>
+        </div>
+
+        <p class="eleven-r-foot">When the episode ends, the task grader adds a terminal score based on its own criteria — CRUD coverage, dependency chaining, security probing, that kind of thing.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 04 HOW TO USE ─── -->
+  <div class="eleven-section alt">
+    <div class="eleven-section-inner">
+      <div class="eleven-row">
+        <div class="eleven-label"><span class="num">04</span>How to use this</div>
+        <div class="eleven-content">
+          <h2>Five steps<br><em>to a verdict.</em></h2>
+
+          <div class="eleven-steps">
+
+            <div class="eleven-step">
+              <div class="eleven-step-num"></div>
+              <div class="eleven-step-title">Pick a task</div>
+              <div class="eleven-step-body">
+                <p>Three difficulty tiers in the dropdown on the left, from a CRUD smoke-test to a full BOLA + injection chain.</p>
+                <div class="eleven-step-chips">
+                  <span class="eleven-step-chip accent">basic_validation</span>
+                  <span class="eleven-step-chip accent">edge_cases</span>
+                  <span class="eleven-step-chip accent">security_workflows</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="eleven-step">
+              <div class="eleven-step-num"></div>
+              <div class="eleven-step-title">Reset the environment</div>
+              <div class="eleven-step-body">
+                <p>Every reset spins up a fresh database with new users, new tasks, and randomized ownership, so the agent can't memorize answers between episodes.</p>
+              </div>
+            </div>
+
+            <div class="eleven-step">
+              <div class="eleven-step-num"></div>
+              <div class="eleven-step-title">Run a baseline</div>
+              <div class="eleven-step-body">
+                <p>The Run Baseline Agent tab is open by default. Pick a strategy and watch it test the API step by step.</p>
+                <div class="eleven-step-chips">
+                  <span class="eleven-step-chip">random</span>
+                  <span class="eleven-step-chip">sequential</span>
+                  <span class="eleven-step-chip">smart</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="eleven-step">
+              <div class="eleven-step-num"></div>
+              <div class="eleven-step-title">Or test manually</div>
+              <div class="eleven-step-body">
+                <p>Switch to Manual Testing. Quick Actions give one-click bug hunts, or craft your own request from scratch — method, endpoint, headers, body, expected status.</p>
+              </div>
+            </div>
+
+            <div class="eleven-step">
+              <div class="eleven-step-num"></div>
+              <div class="eleven-step-title">Watch the panel</div>
+              <div class="eleven-step-body">
+                <p>Discovered Bugs and the Activity Log update live as the agent works. When the episode ends, expand the Bug Report (OWASP) drawer for the full structured findings, severities, and fix recommendations.</p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 05 STACK ─── -->
+  <div class="eleven-section">
+    <div class="eleven-row">
+      <div class="eleven-label"><span class="num">05</span>Under the hood</div>
+      <div class="eleven-content">
+        <h2>Three <em>layers.</em></h2>
+        <p>Self-contained, reproducible, and runs on a free-tier HuggingFace Space.</p>
+
+        <div class="eleven-stack">
+          <div class="eleven-tile">
+            <span class="eleven-tile-tag">L1 · ENVIRONMENT</span>
+            <h3>FastAPI + SQLite</h3>
+            <p>A buggy Task Management API wrapped in OpenEnv's <code>step()</code> / <code>reset()</code> / <code>state()</code> contract. Runs in-process or as a Docker image, with seed-randomized data on every reset so episodes can't be memorized.</p>
+          </div>
+          <div class="eleven-tile">
+            <span class="eleven-tile-tag">L2 · INFERENCE</span>
+            <h3>OpenAI-compatible client</h3>
+            <p><code>inference.py</code> talks to any HuggingFace-hosted model through the OpenAI SDK and structured JSON output. Plug in any model that follows the protocol — no environment-specific glue.</p>
+          </div>
+          <div class="eleven-tile">
+            <span class="eleven-tile-tag">L3 · DEPLOY</span>
+            <h3>Docker + HF Spaces</h3>
+            <p>Containerized on top of the official <code>openenv-base</code> image and deployed as a public HuggingFace Space, so judges can hit it with a single HTTP call.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 06 LINKS ─── -->
+  <div class="eleven-section alt">
+    <div class="eleven-section-inner">
+      <div class="eleven-row">
+        <div class="eleven-label"><span class="num">06</span>The artifacts</div>
+        <div class="eleven-content">
+          <h2>Everything <em>reproducible.</em></h2>
+          <p>Source code, deployed environment, framework. Open and inspectable.</p>
+
+          <div class="eleven-links">
+            <a class="eleven-link" href="https://github.com/Mayankpratapsingh022/API-Testing-RL" target="_blank" rel="noopener">https://github.com/Mayankpratapsingh022/API-Testing-RL</a>
+            <a class="eleven-link" href="https://meta-pytorch.org/OpenEnv/" target="_blank" rel="noopener">https://meta-pytorch.org/OpenEnv/</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+"""
+
+
 @dataclass
 class SessionState:
     env: APITestEnvironment = field(default_factory=APITestEnvironment)
@@ -469,8 +1241,284 @@ def format_endpoints():
 # UI
 # =====================================================================
 
+_GRADIO_THEME = gr.themes.Soft(
+    primary_hue="emerald",
+    secondary_hue="green",
+    neutral_hue="slate",
+    font=[gr.themes.GoogleFont("Inter"), "system-ui", "sans-serif"],
+    font_mono=[gr.themes.GoogleFont("IBM Plex Mono"), "ui-monospace", "monospace"],
+)
+
+
+# Custom CSS injected into the Gradio app to highlight important interactive
+# elements (primary buttons, active tabs, hover states) so the playground
+# doesn't feel washed out. Works in both light and dark mode.
+_GRADIO_CSS = """
+/* ─── Mintlify-inspired green palette (flat, no gradients) ─── */
+:root {
+    --accent:        #18E299;   /* Brand Green */
+    --accent-hover:  #0fa76e;   /* Brand Green Deep */
+    --accent-soft:   #d4fae8;   /* Brand Green Light */
+    --accent-border: rgba(15, 167, 110, 0.28);
+    --ink:           #0d0d0d;
+    --ink-muted:     #666666;
+    --line:          #e5e5e5;
+    --surface:       #fafafa;
+    --success: #16a34a;
+    --danger:  #dc2626;
+    --info:    #2563eb;
+}
+.dark {
+    --accent:        #18E299;
+    --accent-hover:  #34efaa;
+    --accent-soft:   rgba(24, 226, 153, 0.14);
+    --accent-border: rgba(24, 226, 153, 0.35);
+    --ink:           #f5f5f5;
+    --ink-muted:     #a0a0a0;
+    --line:          rgba(255, 255, 255, 0.10);
+    --surface:       #141414;
+}
+
+/* ─── Primary buttons ─────────────────────────────────────────────
+   Light mode: near-black surface, white text, green hover.
+   Dark mode:  bright green surface, near-black text.
+   Both flat (no gradients, no glow). */
+button.primary,
+.gr-button.primary,
+button[class*="primary"],
+.gr-button-primary {
+    background: #0d0d0d !important;
+    background-image: none !important;
+    color: #ffffff !important;
+    border: 1px solid #0d0d0d !important;
+    box-shadow: none !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.01em !important;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+button.primary:hover,
+.gr-button.primary:hover,
+button[class*="primary"]:hover,
+.gr-button-primary:hover {
+    background: #0fa76e !important;
+    background-image: none !important;
+    color: #ffffff !important;
+    border-color: #0fa76e !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
+}
+button.primary:active,
+.gr-button.primary:active,
+.gr-button-primary:active {
+    background: #0a8a5a !important;
+    border-color: #0a8a5a !important;
+    transform: none !important;
+    filter: none !important;
+}
+/* Dark-mode override: bright green CTA pops against the dark surface */
+.dark button.primary,
+.dark .gr-button.primary,
+.dark button[class*="primary"],
+.dark .gr-button-primary {
+    background: #18E299 !important;
+    color: #07301f !important;
+    border: 1px solid #18E299 !important;
+}
+.dark button.primary:hover,
+.dark .gr-button.primary:hover,
+.dark button[class*="primary"]:hover,
+.dark .gr-button-primary:hover {
+    background: #34efaa !important;
+    border-color: #34efaa !important;
+    color: #07301f !important;
+}
+
+/* ─── Secondary buttons ──────────────────────────────────────────
+   Light mode: white with dark border, fills near-black on hover.
+   Dark mode:  ghost button with green border. */
+button.secondary,
+.gr-button.secondary,
+.gr-button-secondary {
+    background: #ffffff !important;
+    background-image: none !important;
+    border: 1px solid #0d0d0d !important;
+    color: #0d0d0d !important;
+    font-weight: 500 !important;
+    box-shadow: none !important;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
+}
+button.secondary:hover,
+.gr-button.secondary:hover,
+.gr-button-secondary:hover {
+    background: #0d0d0d !important;
+    color: #ffffff !important;
+    border-color: #0d0d0d !important;
+}
+.dark button.secondary,
+.dark .gr-button.secondary,
+.dark .gr-button-secondary {
+    background: transparent !important;
+    border: 1px solid var(--accent-border) !important;
+    color: var(--accent) !important;
+}
+.dark button.secondary:hover,
+.dark .gr-button.secondary:hover,
+.dark .gr-button-secondary:hover {
+    background: var(--accent) !important;
+    color: #07301f !important;
+    border-color: var(--accent) !important;
+}
+
+/* ─── Tabs (selected tab uses brand green) ─── */
+button[role="tab"][aria-selected="true"],
+.tab-nav button.selected,
+.tab-nav button[aria-selected="true"] {
+    color: var(--accent-hover) !important;
+    border-bottom: 2px solid var(--accent) !important;
+    font-weight: 600 !important;
+}
+.dark button[role="tab"][aria-selected="true"],
+.dark .tab-nav button.selected,
+.dark .tab-nav button[aria-selected="true"] {
+    color: var(--accent) !important;
+}
+button[role="tab"]:hover,
+.tab-nav button:hover {
+    color: var(--accent-hover) !important;
+}
+.dark button[role="tab"]:hover,
+.dark .tab-nav button:hover {
+    color: var(--accent) !important;
+}
+
+/* ─── Inputs (focus ring uses brand green, no glow) ─── */
+.gr-dropdown,
+.gr-input,
+.gr-textbox,
+input[type="text"],
+input[type="number"],
+textarea,
+select {
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+.gr-dropdown:focus-within,
+.gr-input:focus-within,
+.gr-textbox:focus-within,
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 3px var(--accent-soft) !important;
+    outline: none !important;
+}
+
+/* ─── Section headings ─── */
+h1, h2, h3 {
+    letter-spacing: -0.01em !important;
+}
+h1, h2 {
+    color: #0d0d0d !important;
+}
+.dark h1, .dark h2 {
+    color: #f5f5f5 !important;
+}
+h3 {
+    color: #0d0d0d !important;
+    font-weight: 600 !important;
+    border-bottom: 1px solid var(--line) !important;
+    padding-bottom: 6px !important;
+    margin-bottom: 12px !important;
+    position: relative !important;
+}
+/* small green accent bar before each section heading for brand identity */
+h3::before {
+    content: "" !important;
+    display: inline-block !important;
+    width: 4px !important;
+    height: 14px !important;
+    background: #18E299 !important;
+    border-radius: 2px !important;
+    margin-right: 8px !important;
+    vertical-align: -2px !important;
+}
+.dark h3 {
+    color: #f5f5f5 !important;
+}
+
+/* ─── Markdown links ─── */
+.prose a, .markdown a, a {
+    color: var(--accent-hover) !important;
+    text-decoration: none !important;
+    border-bottom: 1px solid var(--accent-border) !important;
+}
+.dark .prose a, .dark .markdown a, .dark a {
+    color: var(--accent) !important;
+}
+.prose a:hover, .markdown a:hover, a:hover {
+    border-bottom-color: var(--accent) !important;
+}
+
+/* ─── Accordion headers ─── */
+.gr-accordion > button,
+button[class*="accordion"] {
+    color: var(--accent-hover) !important;
+    font-weight: 600 !important;
+}
+.dark .gr-accordion > button,
+.dark button[class*="accordion"] {
+    color: var(--accent) !important;
+}
+
+/* ─── Card borders (Mintlify principle: borders, not shadows) ─── */
+.gr-block.gr-box {
+    border-color: var(--line) !important;
+    box-shadow: none !important;
+}
+
+/* ─── Match the Gradio dark surface to the blog section ──────────
+   The blog section below uses #0a0a0a as its background. Override
+   Gradio's default slate so the page reads as one continuous canvas. */
+.dark {
+    --body-background-fill: #0a0a0a !important;
+    --background-fill-primary: #0a0a0a !important;
+    --background-fill-secondary: #131313 !important;
+    --block-background-fill: #131313 !important;
+    --panel-background-fill: #131313 !important;
+    --input-background-fill: #131313 !important;
+    --border-color-primary: rgba(255, 255, 255, 0.08) !important;
+}
+.dark,
+.dark body,
+.dark gradio-app,
+.dark .gradio-container,
+.dark .main,
+.dark .wrap,
+.dark .app,
+.dark .contain {
+    background: #0a0a0a !important;
+    background-color: #0a0a0a !important;
+}
+/* Cards / blocks get a slightly lighter surface so they remain
+   visually separated from the page background. */
+.dark .gr-block,
+.dark .gr-box,
+.dark .gr-form,
+.dark .gr-panel,
+.dark .block,
+.dark .form {
+    background: #131313 !important;
+    background-color: #131313 !important;
+    border-color: rgba(255, 255, 255, 0.08) !important;
+}
+"""
+
+
 def build_ui():
-    with gr.Blocks(title="API Testing Environment") as demo:
+    # Mintlify-inspired green Soft theme — adapts to ?__theme=light / ?__theme=dark
+    # URL params on HuggingFace Spaces. The blog section below also reads the
+    # .dark body class so the entire page adapts together.
+    with gr.Blocks(title="API Testing Environment", theme=_GRADIO_THEME, css=_GRADIO_CSS) as demo:
         session = gr.State(value=new_session())
 
         gr.Markdown(
@@ -526,6 +1574,11 @@ def build_ui():
             # ── Center Panel ──
             with gr.Column(scale=2):
                 with gr.Tabs():
+                    with gr.Tab("Run Baseline Agent"):
+                        gr.Markdown("### Automated Agents\nWatch a baseline agent test the API step by step. Pick a strategy and click Run Agent.")
+                        agent_dropdown = gr.Dropdown(choices=["random", "sequential", "smart"], value="smart", label="Agent Type")
+                        run_agent_btn = gr.Button("Run Agent", variant="primary", size="lg")
+
                     with gr.Tab("Manual Testing"):
                         gr.Markdown("### Craft Your Request")
                         with gr.Row():
@@ -559,11 +1612,6 @@ def build_ui():
                         )
                         quick_btn = gr.Button("Load Quick Action", variant="secondary")
 
-                    with gr.Tab("Run Baseline Agent"):
-                        gr.Markdown("### Automated Agents\nWatch a baseline agent test the API step by step.")
-                        agent_dropdown = gr.Dropdown(choices=["random", "sequential", "smart"], value="smart", label="Agent Type")
-                        run_agent_btn = gr.Button("Run Agent", variant="primary", size="lg")
-
                 gr.Markdown("---")
                 gr.Markdown("### Response")
                 response_display = gr.Markdown("")
@@ -572,17 +1620,21 @@ def build_ui():
                 feedback_display = gr.Markdown("")
 
             # ── Right Panel ──
+            # Stacked (no tabs) so Discovered Bugs and Activity Log are both
+            # visible at once — users shouldn't have to click to see the log.
             with gr.Column(scale=1):
-                with gr.Tabs():
-                    with gr.Tab("Discovered Bugs"):
-                        bug_list_display = gr.Markdown("No bugs found yet.")
+                gr.Markdown("### Discovered Bugs")
+                bug_list_display = gr.Markdown("No bugs found yet.")
 
-                    with gr.Tab("Bug Report"):
-                        gr.Markdown("*Auto-generated OWASP security report. Populates as bugs are found.*")
-                        bug_report_display = gr.Markdown("No bugs found yet. Send requests to discover vulnerabilities.")
+                gr.Markdown("### Activity Log")
+                log_display = gr.Markdown("No steps yet.")
 
-                    with gr.Tab("Activity Log"):
-                        log_display = gr.Markdown("No steps yet.")
+                with gr.Accordion("Bug Report (OWASP)", open=False):
+                    gr.Markdown("*Auto-generated OWASP security report. Populates as bugs are found.*")
+                    bug_report_display = gr.Markdown("No bugs found yet. Send requests to discover vulnerabilities.")
+
+        # ── Editorial blog-style documentation below the app ──
+        gr.HTML(BLOG_HTML)
 
         # ── Wiring ──
         reset_outputs = [
@@ -624,4 +1676,12 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--share", action="store_true")
     args = parser.parse_args()
-    build_ui().launch(server_name=args.host, server_port=args.port, share=args.share)
+
+    # Pass theme + css to both Blocks() (Gradio 5.x) and launch() (Gradio 6.0+)
+    # so it works on whichever version the host runs.
+    launch_kwargs = dict(server_name=args.host, server_port=args.port, share=args.share)
+    try:
+        build_ui().launch(theme=_GRADIO_THEME, css=_GRADIO_CSS, **launch_kwargs)
+    except TypeError:
+        # Older Gradio: launch() doesn't accept theme/css — Blocks() already has them
+        build_ui().launch(**launch_kwargs)
