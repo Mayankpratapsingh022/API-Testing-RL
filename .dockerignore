@@ -1,0 +1,38 @@
+# Local virtualenv — 486 MB, never needed inside the image
+.venv/
+venv/
+env/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Git history and IDE state
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local secrets / env files
+.env
+.env.*
+!.env.example
+
+# Docs / plots / training artifacts (not used at runtime)
+plots/
+training/
+data/*.db
+*.log
+
+# Build / dist
+build/
+dist/
+*.tar.gz
