@@ -1,6 +1,6 @@
 ---
 title: API Testing Environment
-emoji: 🛡️
+emoji: 🐞
 colorFrom: green
 colorTo: blue
 sdk: docker
@@ -28,6 +28,20 @@ tags:
   <a href="https://huggingface.co/spaces/Mayank022/api-testing-env"><b>Try the live demo →</b></a>
 </p>
 
+<p align="center">
+  <a href="#overview">Overview</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#episode-lifecycle">Lifecycle</a> ·
+  <a href="#reward-function">Reward</a> ·
+  <a href="#owasp-coverage">OWASP</a> ·
+  <a href="#setup--usage">Setup</a> ·
+  <a href="#evaluation-results">Results</a>
+</p>
+
+<p align="center">
+  <img src="plots/environment_architecture.png" alt="Environment architecture diagram" width="820">
+</p>
+
 ---
 
 ## Overview
@@ -53,11 +67,7 @@ This environment fills that gap. It gives an agent a real REST API to attack, a 
 
 ## Architecture
 
-<p align="center">
-  <img src="plots/environment_architecture.png" alt="Environment architecture" width="780">
-</p>
-
-The environment is a single FastAPI process that wraps three things behind the OpenEnv `step()` / `reset()` / `state()` contract:
+The environment is a single FastAPI process (see the diagram at the top of this README) that wraps three things behind the OpenEnv `step()` / `reset()` / `state()` contract:
 
 1. **`buggy_api/`** — an in-process Task Management REST API with seed-randomized data. Every `reset(seed=N)` produces a unique database (different users, tasks, ownership), so agents can't memorize answers between episodes.
 2. **`bug_detector.py`** — 13 deterministic detectors, one per planted vulnerability. Each one scans the request/response pair and either fires (bug found) or stays silent. No LLM judge.
