@@ -612,7 +612,6 @@ html.dark .eleven {
         <div class="eleven-content">
           <h2>Why <em>bother.</em></h2>
           <p>Every team ships APIs and every API has bugs. The usual tools <span class="eleven-chip">Postman</span> <span class="eleven-chip">Schemathesis</span> <span class="eleven-chip">OWASP&nbsp;ZAP</span> either need humans writing tests by hand or fall back to brute-force fuzzing.</p>
-          <p>Recent papers — <em>APIRL</em> at AAAI 2025, <em>ARAT-RL</em> at ASE 2023 — show RL beats both. But there hasn't been a standard RL benchmark for it.</p>
           <div class="eleven-quote">This environment <em>is the benchmark.</em></div>
           <p>The agent doesn't get a written test plan. It reads the API spec, plans a campaign, runs it, and reports what broke. The reward function is verifiable — no LLM judge, no soft heuristics — and every signal maps to a real OWASP category, so episodes can be scored deterministically.</p>
         </div>
@@ -1632,6 +1631,25 @@ def build_ui():
                 with gr.Accordion("Bug Report (OWASP)", open=False):
                     gr.Markdown("*Auto-generated OWASP security report. Populates as bugs are found.*")
                     bug_report_display = gr.Markdown("No bugs found yet. Send requests to discover vulnerabilities.")
+
+        # ── Demo video (embedded between the app and the blog) ──
+        gr.HTML(
+            """
+            <div style="max-width: 900px; margin: 32px auto; padding: 0 16px;">
+              <div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                <iframe
+                  src="https://www.youtube.com/embed/9psbwJug6G4"
+                  title="YouTube video player"
+                  frameborder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerpolicy="strict-origin-when-cross-origin"
+                  allowfullscreen
+                  style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                </iframe>
+              </div>
+            </div>
+            """
+        )
 
         # ── Editorial blog-style documentation below the app ──
         gr.HTML(BLOG_HTML)

@@ -8,7 +8,7 @@ app_port: 8000
 base_path: /ui/
 pinned: true
 license: mit
-short_description: RL environment that trains agents to find OWASP API vulnerabilities
+short_description: RL env training agents to find OWASP API vulnerabilities
 tags:
   - openenv
   - reinforcement-learning
@@ -25,7 +25,8 @@ tags:
 </p>
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/Mayank022/api-testing-env"><b>Try the live demo →</b></a>
+  <a href="https://huggingface.co/spaces/Mayank022/api-testing-env"><b>Try the live demo →</b></a> ·
+  <a href="https://youtu.be/9psbwJug6G4"><b>Watch the walkthrough ▶</b></a>
 </p>
 
 <p align="center">
@@ -96,6 +97,36 @@ A typical episode walks through five states:
 | **Done** | Episode closed | Ready for the next `reset()` |
 
 The state machine is the same for every task — only `max_steps`, the seed, and the grader change.
+
+### Per-step message flow
+
+<p align="center">
+  <img src="plots/episode_lifecycle.svg" alt="Episode lifecycle sequence diagram" width="820">
+</p>
+
+Zooming in on a single episode, the sequence diagram above shows how the seven actors collaborate from `reset()` to the final report:
+
+1. **Agent → Environment** — `reset(seed=42, task_id="security_workflows")` boots a fresh episode.
+2. **Environment → Database** — `Database(seed=42)` deterministically reseeds users and tasks so every run is reproducible.
+3. **Environment → Buggy API** — `create_buggy_api(db)` wires the FastAPI app with planted vulnerabilities on top of the database.
+4. **Environment → Agent** — returns the initial `APITestObservation` (API spec + task description).
+5. **Loop, up to `max_steps` (25–45)** — for each step:
+   - **Agent → Environment** — `step(APITestAction)` with method, endpoint, headers, body.
+   - **Environment → Buggy API** — issues the HTTP request via the in-process `TestClient`.
+   - **Buggy API → Database** — runs the SQL query and reads back the row(s).
+   - **Buggy API → Environment** — returns the HTTP response (status + body).
+   - **Environment → Bug Detector** — `check(action, response)` asks whether this exchange matches a planted vulnerability pattern.
+   - **Bug Detector → Environment** — returns a `BugDetection` (with severity + OWASP ID) or `None`.
+   - **Environment → Reward Engine** — `compute(...)` aggregates coverage, validity, bug, exploration, and penalty signals.
+   - **Reward Engine → Environment** — emits the partial step reward (~0.0–0.5).
+   - **Environment → Agent** — returns `obs + reward + done`.
+6. **Final step** — `done=True` exits the loop.
+7. **Environment → Grader** — `grade(bugs_found, coverage, history)` runs the task-specific scorer.
+8. **Grader → Environment** — returns a terminal `score ∈ [0, 1]` plus a per-criterion breakdown.
+9. **Environment → Bug Detector** — `generate_bug_report(...)` emits the OWASP-mapped bug bounty report.
+10. **Environment → Agent** — final observation containing `grade.score` and the structured report.
+
+Every arrow in the diagram is a real function call in the codebase — there are no LLM mediators or hidden judges between actors, which is what makes the reward signal verifiable.
 
 ---
 
